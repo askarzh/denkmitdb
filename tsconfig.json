@@ -1,29 +1,29 @@
 {
-	"compilerOptions": {
-		"module": "ES2022",
-		"target": "ES2022",
-		"sourceMap": true,
-		"outDir": "./dist/",
-		"lib": ["ES2022", "es2017", "es7", "es6", "DOM"],
-		"baseUrl": ".",
-		"resolveJsonModule": true,
-		"moduleResolution": "node",
-		"esModuleInterop": true,
-		"noImplicitAny": true,
-		"noImplicitThis": true,
-		"declaration": false,
-		"skipLibCheck": true,
-		"allowJs": true,
-		"strict": true,
-		"strictNullChecks": true,
-		"strictFunctionTypes": true,
-		"forceConsistentCasingInFileNames": true,
-		"typeRoots": ["src/**/types", "node_modules/@types"]
-	},
-	"ts-node": {
-		"esm": true,
-		"experimentalSpecifierResolution": "node"
-	},
-	"include": ["src/**/*"],
-	"exclude": ["node_modules/*", "dist/*", "scripts/*", "examples/*"]
+    "compilerOptions": {
+        "module": "ES2022",
+        "target": "ES2022",
+        "sourceMap": true,
+        "outDir": "./dist/",
+        "lib": ["ES2022", "es2017", "es7", "es6", "DOM"],
+        "baseUrl": ".",
+        "resolveJsonModule": true,
+        "moduleResolution": "node",
+        "esModuleInterop": true,
+        "noImplicitAny": true,
+        "noImplicitThis": true,
+        "declaration": false,
+        "skipLibCheck": true,
+        "allowJs": true,
+        "strict": true,
+        "strictNullChecks": true,
+        "strictFunctionTypes": true,
+        "forceConsistentCasingInFileNames": true,
+        "typeRoots": ["src/**/types", "node_modules/@types"]
+    },
+    "ts-node": {
+        "esm": true,
+        "experimentalSpecifierResolution": "node"
+    },
+    "include": ["src/**/*", "333.ts", "444.ts"],
+    "exclude": ["node_modules/*", "dist/*", "scripts/*", "examples/*"]
 }

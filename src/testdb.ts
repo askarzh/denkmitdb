@@ -22,58 +22,58 @@ import { MerkleDatabase } from "./functions/merkleDatabase";
 import { createIdentity } from "./functions/identity";
 
 const libp2pOptions = {
-  addresses: {
-    listen: ["/ip4/0.0.0.0/tcp/0"],
-  },
-  transports: [tcp()],
-  connectionEncryption: [noise()],
-  streamMuxers: [yamux()],
-  peerDiscovery: [mdns()],
-  services: {
-    identify: identify(),
-    pubsub: gossipsub({ emitSelf: true }),
-  },
+    addresses: {
+        listen: ["/ip4/0.0.0.0/tcp/0"],
+    },
+    transports: [tcp()],
+    connectionEncryption: [noise()],
+    streamMuxers: [yamux()],
+    peerDiscovery: [mdns()],
+    services: {
+        identify: identify(),
+        pubsub: gossipsub({ emitSelf: true }),
+    },
 };
 
 async function createIpfsNode(nodeNumber: number = 1): Promise<Helia> {
-  const directory = `node${nodeNumber}`;
-  const blockstore = new FsBlockstore(`${directory}/block-store`);
-  const datastore = new FsDatastore(`${directory}/data-store`);
+    const directory = `node${nodeNumber}`;
+    const blockstore = new FsBlockstore(`${directory}/block-store`);
+    const datastore = new FsDatastore(`${directory}/data-store`);
 
-  const keychainInit = {
-    pass: "Test password dont use it 123",
-  };
+    const keychainInit = {
+        pass: "Test password dont use it 123",
+    };
 
-  let peerId;
+    let peerId;
 
-  const chain = keychain(keychainInit)({
-    datastore,
-    logger: defaultLogger(),
-  });
+    const chain = keychain(keychainInit)({
+        datastore,
+        logger: defaultLogger(),
+    });
 
-  const selfKey = new Key("/pkcs8/self");
+    const selfKey = new Key("/pkcs8/self");
 
-  if (await datastore.has(selfKey)) {
-    peerId = await chain.exportPeerId("self");
-  }
+    if (await datastore.has(selfKey)) {
+        peerId = await chain.exportPeerId("self");
+    }
 
-  const libp2p = await createLibp2p({
-    peerId,
-    datastore,
-    ...libp2pOptions,
-  });
+    const libp2p = await createLibp2p({
+        peerId,
+        datastore,
+        ...libp2pOptions,
+    });
 
-  if (peerId == null && !(await datastore.has(selfKey))) {
-    await chain.importPeer("self", libp2p.peerId);
-  }
+    if (peerId == null && !(await datastore.has(selfKey))) {
+        await chain.importPeer("self", libp2p.peerId);
+    }
 
-  const ipfs: Helia = await createHelia({
-    datastore,
-    blockstore,
-    libp2p,
-  });
+    const ipfs: Helia = await createHelia({
+        datastore,
+        blockstore,
+        libp2p,
+    });
 
-  return ipfs;
+    return ipfs;
 }
 
 let ipfs = await createIpfsNode(1);
