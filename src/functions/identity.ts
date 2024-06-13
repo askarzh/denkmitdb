@@ -1,4 +1,3 @@
-import { sha256 } from "multiformats/hashes/sha2";
 import { CID } from "multiformats/cid";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
@@ -7,7 +6,6 @@ import * as jose from "jose";
 import { base64 } from "multiformats/bases/base64";
 import type { Helia } from "@helia/interface";
 import { Key } from "interface-datastore";
-import { dagCbor } from "@helia/dag-cbor";
 
 import {
     IdentityInterface,
@@ -18,7 +16,8 @@ import {
     KeyPair,
     DataTypes,
 } from "../interfaces";
-import type { BlockView } from "multiformats";
+
+import { HeliaController } from "./utils";
 
 const keyPrefix = "/Denkmit/";
 
@@ -166,23 +165,11 @@ async function createJWS(payload: Uint8Array, keys: KeyPair, options?: createJWS
     return await new jose.FlattenedSign(payload).setProtectedHeader(headers).sign(keys.privateKey);
 }
 
-export async function addBlock(value: object, ipfs: Helia): Promise<CID> {
-    const d = dagCbor(ipfs);
-    const cid = await d.add(value);
-    if (!(await ipfs.pins.isPinned(cid))) {
-        await ipfs.pins.add(cid);
-    }
-
-    return cid;
-}
-
-export async function getBlock(cid: CID, ipfs: Helia): Promise<object> {
-    const d = dagCbor(ipfs);
-    return await d.get(cid);
-}
-
 export async function getIdentity(cid: CID, ipfs: Helia, keys: KeyPair): Promise<IdentityInterface> {
-    const identityJWS = (await getBlock(cid, ipfs)) as IdentityJWS;
+    const identityJWS = await HeliaController.getBlock<IdentityJWS>(ipfs, cid);
+    if (!identityJWS) {
+        throw new Error("Identity not found");
+    }
     const verifyResult = await jose.flattenedVerify(identityJWS, jose.EmbeddedJWK);
     const identityInput: IdentityInput = codec.decode(verifyResult.payload);
     const id = cid.toString(base64.encoder);
@@ -231,7 +218,7 @@ export async function createIdentity(
 
     const identityJWS = await createJWS(codec.encode(identityToSign), keys, { alg, includeJwk: true });
 
-    const cid = await addBlock(identityJWS, ipfs);
+    const cid = await HeliaController.addBlock(ipfs, identityJWS);
     const id = cid.toString();
     const identity: IdentityType = { ...identityToSign, id };
 

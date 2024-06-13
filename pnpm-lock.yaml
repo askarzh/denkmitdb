@@ -65,6 +65,9 @@ importers:
       js-sdsl:
         specifier: ^4.4.2
         version: 4.4.2
+      keyv:
+        specifier: ^4.5.4
+        version: 4.5.4
       libp2p:
         specifier: ^1.6.1
         version: 1.6.1

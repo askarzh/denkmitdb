@@ -50,6 +50,7 @@
         "interface-datastore": "^8.2.11",
         "jose": "^5.4.0",
         "js-sdsl": "^4.4.2",
+        "keyv": "^4.5.4",
         "libp2p": "^1.6.1",
         "multiformats": "^13.1.1",
         "uint8arrays": "^5.1.0",

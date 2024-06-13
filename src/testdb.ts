@@ -20,6 +20,7 @@ import type { Helia } from "@helia/interface";
 import type { UnixFS } from "@helia/unixfs";
 import { MerkleDatabase } from "./functions/merkleDatabase";
 import { createIdentity } from "./functions/identity";
+import { he } from "@faker-js/faker";
 
 const libp2pOptions = {
     addresses: {
@@ -81,28 +82,51 @@ let identity = await createIdentity(ipfs);
 
 const mdb = new MerkleDatabase({ database: "test", ipfs, identity });
 
-await mdb.put("key1", { value: "value1" });
-await mdb.put("key2", { value: "value2" });
-await mdb.put("key3", { value: "value3" });
-await mdb.put("key4", { value: "value4" });
-await mdb.put("key5", { value: "value4" });
-await mdb.put("key6", { value: "value4" });
-await mdb.put("key7", { value: "value4" });
-await mdb.put("key8", { value: "value4" });
-await mdb.put("key9", { value: "value4" });
-await mdb.put("key10", { value: "value4" });
+await mdb.set("key1", { value: "value1" });
+await mdb.set("key2", { value: "value2" });
+await mdb.set("key3", { value: "value3" });
+await mdb.set("key4", { value: "value4" });
+await mdb.set("key5", { value: "value5" });
+await mdb.set("key6", { value: "value6" });
+await mdb.set("key7", { value: "value7" });
+await mdb.set("key8", { value: "value8" });
+await mdb.set("key9", { value: "value9" });
 
 const cid = await mdb.getCID();
 console.log("Database: ", cid);
-const layers = mdb.getLayers();
-console.log("Layers: ", layers);
 
 const mdb1 = new MerkleDatabase({ database: "test", ipfs, identity });
 await mdb1.load(cid);
 const cid1 = await mdb1.getCID();
 console.log("Database1: ", cid1);
-const layers1 = mdb.getLayers();
-console.log("Layers1: ", layers1);
-await mdb1.loadData();
+
+await mdb.set("key10", { value: "value10" });
+await mdb1.set("key10-1", { value: "value10-1" });
+await mdb.set("key11", { value: "value11" });
+await mdb.set("key12", { value: "value12" });
+await mdb1.set("key12-1", { value: "value12-1" });
+await mdb.set("key13", { value: "value13" });
+const cidUpdated = await mdb.getCID();
+console.log("Database with new records: ", cidUpdated);
+const head = await mdb.createHead();
+console.log("Head: ", head);
+const head1 = await mdb1.getHead(head);
+console.log("Head1: ", head1);
+if(!head1) process.exit(1);
+const diff = await mdb1.compare(head1);
+console.log("Diff: ", diff.difference[1]);
+
+for await (const e of mdb1.iterator()) {
+    console.log(e);
+}
+
+await mdb1.merge(head1);
+const cidMerged = await mdb1.getCID();
+console.log("Database after merge: ", cidMerged);
+
+for await (const e of mdb1.iterator()) {
+    console.log(e);
+}
+
 
 await ipfs.stop();

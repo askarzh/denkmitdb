@@ -6,17 +6,12 @@ import * as codec from "@ipld/dag-cbor";
 
 import { LeafTypes, LeafType, PollardType, PollardInterface, PollardOptions, DataTypes } from "../interfaces";
 
-export function createLeaf(type?: LeafTypes, data?: Uint8Array, sortFields?: number[]): LeafType {
-    if (!type) {
-        type = LeafTypes.Empty;
-    }
-    if (!data) {
-        data = new Uint8Array(0);
-    }
-    const leaf: LeafType = [type, data];
-    if (sortFields) {
-        leaf.push(sortFields);
-    }
+export function createLeaf(type?: LeafTypes, data?: Uint8Array, sortFields?: number[], key?: string): LeafType {
+    const leaf: LeafType = [type || LeafTypes.Empty, data || new Uint8Array(0)];
+    if (type === LeafTypes.SortedEntry && !sortFields) throw new Error("Sort fields are required for SortedEntry");
+    if (sortFields) leaf.push(sortFields);
+    if (key) leaf.push(key);
+
     return leaf;
 }
 
@@ -79,7 +74,11 @@ class Pollard implements PollardInterface {
         this._cid = options.cid;
     }
 
-    async append(type: LeafTypes, data: CID | Uint8Array | string, sortFields?: number[]): Promise<boolean> {
+    async append(
+        type: LeafTypes,
+        data: CID | Uint8Array | string,
+        options?: { sortFields?: number[]; key?: string },
+    ): Promise<boolean> {
         let bytes: Uint8Array;
 
         if (data instanceof Uint8Array) {
@@ -92,7 +91,7 @@ class Pollard implements PollardInterface {
             throw new Error("Unsupported type");
         }
 
-        const leaf = createLeaf(type, bytes, sortFields);
+        const leaf = createLeaf(type, bytes, options?.sortFields, options?.key);
         return this.addLeaf(leaf);
     }
 
@@ -110,6 +109,10 @@ class Pollard implements PollardInterface {
         this._needUpdate = true;
 
         return true;
+    }
+
+    async getLeaf(index: number): Promise<LeafType> {
+        return this._layers[0][index];
     }
 
     get length(): number {

@@ -1,8 +1,8 @@
 import {
     DataTypes,
     ManifestType,
-    EntryInterface,
-    MerkleDatabaseInterface,
+    EntryInput,
+    PollardLocation,
     PollardType,
     PollardInterface,
     PollardNode,
@@ -10,14 +10,14 @@ import {
     LeafType,
     LeafTypes,
     IdentityInterface,
+    HeadDatabaseType,
 } from "../interfaces";
 import { createLeaf, createPollard, createEntry } from "./";
+import { HeliaController } from "./utils";
 import { Helia } from "@helia/interface";
-import { dagCbor, DAGCBOR } from "@helia/dag-cbor";
 import { CID } from "multiformats/cid";
 import { OrderedMap } from "js-sdsl";
-import jose from "jose";
-import * as codec from "@ipld/dag-cbor";
+import Keyv from "keyv";
 
 class TimestampConsensusController {}
 
@@ -39,33 +39,65 @@ type EntryKeyPollardCidHashMapRecord = {
 //   return 0;
 // }
 
+export async function createMerkleDatabase({
+    database,
+    ipfs,
+    identity,
+    storage,
+}: {
+    database: string;
+    storage?: Keyv;
+    ipfs: Helia;
+    identity: IdentityInterface;
+}): Promise<MerkleDatabase> {
+    return new MerkleDatabase({ database, ipfs, identity, storage });
+}
+
 export class MerkleDatabase {
     private readonly pollardOrder: number = 3;
     private maxPollardLength: number;
     readonly layers: PollardInterface[][];
-    private orderedEntriesMap: OrderedMap<number, CID>;
+    private orderedEntriesMap: OrderedMap<number, { cid: CID; key: string }>;
     private identity: IdentityInterface;
     private ipfs: Helia;
-    private heliaDagCbor: DAGCBOR;
-    private localStorage: Map<string, object>;
+    private heliaController: HeliaController<HeadDatabaseType | EntryInput | PollardType>;
+    private storage: Keyv;
 
-    constructor({ ipfs, identity }: { database: string; ipfs: Helia; identity: IdentityInterface }) {
+    constructor({ ipfs, identity, storage }: { database: string; storage?: Keyv, ipfs: Helia; identity: IdentityInterface }) {
         this.layers = [];
         this.orderedEntriesMap = new OrderedMap([], (x: number, y: number) => x - y, true);
         this.ipfs = ipfs;
-        this.heliaDagCbor = dagCbor(ipfs);
         this.identity = identity;
-        this.localStorage = new Map();
+        this.storage = storage || new Keyv();
         this.maxPollardLength = 2 ** this.pollardOrder;
+        this.heliaController = new HeliaController(ipfs, identity);
     }
 
     async open(cid: CID): Promise<void> {}
 
-    async put(key: string, value: object): Promise<void> {
-        const { cid, entry } = await createEntry(key, value, this.identity, this.ipfs);
-        this.orderedEntriesMap.setElement(entry.timestamp, cid);
+    async set(key: string, value: object): Promise<void> {
+        const { cid, entry } = await createEntry(key, value, this.heliaController);
+        await this.updateLocalStorageAndMap(entry.timestamp, cid, key, value);
         await this.updateLayers(entry.timestamp);
-        this.localStorage.set(key, value);
+    }
+
+    async get(key: string): Promise<object | undefined> {
+        const record = await this.storage.get(key);
+        if (!record) return;
+        if (record.value) return record.value;
+        const cid = CID.parse(record.cid);
+        const entry = await this.heliaController.getSigned<EntryInput>(cid);
+        if (!entry) return;
+        await this.storage.set(key, { cid: cid.toString(), value: entry.value });
+        return entry.value;
+    }
+
+    async *iterator(): AsyncGenerator<[key: string, value: unknown]> {
+        for (const [timestamp, record] of this.orderedEntriesMap) {
+            const { cid, key } = record;
+            const value = await this.get(key);
+            if (value) yield [key, value];
+        }
     }
 
     async getCID(): Promise<CID> {
@@ -78,17 +110,88 @@ export class MerkleDatabase {
         return this.layers;
     }
 
-    async get(key: string): Promise<object | undefined> {
-        return this.localStorage.get(key);
+    private async compareNodes(
+        layersCount: number,
+        root: CID | undefined,
+        { layerIndex, position }: PollardLocation,
+    ): Promise<[LeafType[], LeafType[]]> {
+        const result: [LeafType[], LeafType[]] = [[], []];
+        let thisPollard = this.getPollardTreeNode({ layerIndex, position }).pollard;
+        const otherPollard = layersCount > layerIndex ? root && (await this.getPollard(root)) : undefined;
+
+        if (!thisPollard && !otherPollard) return result;
+
+        thisPollard = thisPollard || (await createPollard({ order: this.pollardOrder }));
+
+        const comp = await thisPollard.compare(otherPollard);
+        if (comp.isEqual) return result;
+
+        if (layerIndex === 0) {
+            result[0] = result[0].concat(comp.difference[0]);
+            result[1] = result[1].concat(comp.difference[1]);
+            return result;
+        }
+
+        const maxPollardLength = Math.max(thisPollard?.length || 0, otherPollard?.length || 0);
+
+        for (let i = 0; i < maxPollardLength; i++) {
+            let cid = root;
+            if (otherPollard) {
+                const leaf = await otherPollard.getLeaf(i);
+                if (leaf[0] !== LeafTypes.Empty) cid = CID.decode(leaf[1]);
+            }
+
+            const next = await this.compareNodes(layersCount, cid, {
+                layerIndex: layerIndex - 1,
+                position: position * maxPollardLength + i,
+            });
+            result[0] = result[0].concat(next[0]);
+            result[1] = result[1].concat(next[1]);
+        }
+
+        return result;
+    }
+
+    async compare(head: HeadDatabaseType): Promise<{ isEqual: boolean; difference: [LeafType[], LeafType[]] }> {
+        const layersCount = Math.max(this.layers.length, head.layersCount);
+        const order = layersCount - 1;
+
+        const difference = await this.compareNodes(layersCount, head.root, { layerIndex: order, position: 0 });
+
+        difference[0] = difference[0].filter((x) => x[0] !== LeafTypes.Empty);
+        difference[1] = difference[1].filter((x) => x[0] !== LeafTypes.Empty);
+
+        const isEqual = difference[0].length === 0 && difference[1].length === 0;
+
+        return { isEqual, difference };
+    }
+
+    async merge(head: HeadDatabaseType): Promise<void> {
+        const { isEqual, difference } = await this.compare(head);
+        if (isEqual) return;
+
+        let smallestTimestamp = Number.MAX_SAFE_INTEGER;
+
+        for (const leaf of difference[1]) {
+            if (leaf[0] !== LeafTypes.SortedEntry) continue;
+            const cid = CID.decode(leaf[1]);
+            if (!leaf[2]) throw new Error("Missing sort fields");
+            if (!leaf[3]) throw new Error("Missing key");
+            const timestamp = leaf[2][0];
+            const key = leaf[3];
+            await this.updateLocalStorageAndMap(timestamp, cid, key);
+            if (timestamp < smallestTimestamp) smallestTimestamp = timestamp;
+        }
+
+        await this.updateLayers(smallestTimestamp);
     }
 
     async updateLayers(sortKey: number): Promise<void> {
         const it = this.orderedEntriesMap.reverseUpperBound(sortKey);
-        const positionInPollard = it.index % this.maxPollardLength;
-        if (positionInPollard === 7) it.next();
+        if (it.index % this.maxPollardLength === 7) it.next();
         const indexStart = it.index - (it.index % this.maxPollardLength);
-        const [startKey, startCid] = this.orderedEntriesMap.getElementByPos(indexStart);
-        const startPosition = Math.floor(indexStart / this.maxPollardLength);
+        const [startKey] = this.orderedEntriesMap.getElementByPos(indexStart);
+        const startPosition = this.calculatePositionInLayer(indexStart);
 
         let pollard = await createPollard({ order: this.pollardOrder });
         let layerIndex = 0;
@@ -99,44 +202,62 @@ export class MerkleDatabase {
         const end = this.orderedEntriesMap.end();
 
         for (const it = begin; !it.equals(end); it.next()) {
-            const cid = it.pointer[1];
-            if (!pollard.isFree()) {
-                await pollard.updateLayers();
-                const cid = await this.heliaDagCbor.add(pollard.toJSON());
-                this.setPollardTreeNode({ layerIndex, position, pollard });
-                pollard = await createPollard({ order: this.pollardOrder });
-                position++;
-            }
-            pollard.append(LeafTypes.SortedEntry, cid, [it.pointer[0]]);
+            const { cid, key } = it.pointer[1];
+            ({ pollard, position } = await this.handlePollardCreation(pollard, layerIndex, position));
+            pollard.append(LeafTypes.SortedEntry, cid, { sortFields: [it.pointer[0]], key: key || "" });
         }
 
-        await pollard.updateLayers();
-        await this.heliaDagCbor.add(pollard.toJSON());
-        this.setPollardTreeNode({ layerIndex, position, pollard });
+        await this.handlePollardUpdate(pollard, layerIndex, position);
 
         pollard = await createPollard({ order: this.pollardOrder });
-        layerIndex++;
-        while (this.layers[layerIndex - 1].length > 1) {
+        for (layerIndex++; this.layers[layerIndex - 1].length > 1; layerIndex++) {
             if (this.layers.length === layerIndex) this.layers.push([]);
-            position = Math.floor(startPosition / this.maxPollardLength ** layerIndex);
+            position = this.calculatePositionInLayer(startPosition, layerIndex);
             const startIndexInLowerLayer = position * this.maxPollardLength;
             const slicedLayer = this.layers[layerIndex - 1].slice(startIndexInLowerLayer);
             for (const pollardNode of slicedLayer) {
-                if (!pollard.isFree()) {
-                    await pollard.updateLayers();
-                    const cid = await this.heliaDagCbor.add(pollard.toJSON());
-                    this.setPollardTreeNode({ layerIndex, position, pollard });
-                    pollard = await createPollard({ order: this.pollardOrder });
-                    position++;
-                }
+                ({ pollard, position } = await this.handlePollardCreation(pollard, layerIndex, position));
                 pollard.append(LeafTypes.Pollard, await pollardNode.getCID());
             }
-            await pollard.updateLayers();
-            const cid = await this.heliaDagCbor.add(pollard.toJSON());
-            this.setPollardTreeNode({ layerIndex, position, pollard });
-
-            layerIndex++;
+            await this.handlePollardUpdate(pollard, layerIndex, position);
         }
+    }
+
+    async createHead(): Promise<CID> {
+        const head: HeadDatabaseType = {
+            version: 1,
+            manifest: CID.parse("bafyreidlekjmlbekthtxhbpz3ujny2lbqtlin7evmy3ohcjuvxf3yw74wm"), // TODO: Add manifest CID
+            root: await this.getCID(),
+            timestamp: Date.now(),
+            creatorId: this.identity.id,
+            layersCount: this.layers.length,
+            size: this.orderedEntriesMap.size(),
+        };
+
+        return await this.heliaController.addSigned(head);
+    }
+
+    async getHead(cid: CID): Promise<HeadDatabaseType | undefined> {
+        return await this.heliaController.getSigned<HeadDatabaseType>(cid);
+    }
+
+    private calculatePositionInLayer(entryPosition: number, layerIndex: number = 1): number {
+        return Math.floor(entryPosition / this.maxPollardLength ** layerIndex);
+    }
+
+    private async handlePollardCreation(pollard: PollardInterface, layerIndex: number, position: number) {
+        if (!pollard.isFree()) {
+            await this.handlePollardUpdate(pollard, layerIndex, position);
+            pollard = await createPollard({ order: this.pollardOrder });
+            position++;
+        }
+        return { pollard, position };
+    }
+
+    private async handlePollardUpdate(pollard: PollardInterface, layerIndex: number, position: number) {
+        await pollard.updateLayers();
+        const cid = await this.heliaController.add(pollard.toJSON());
+        this.setPollardTreeNode({ layerIndex, position, pollard });
     }
 
     setPollardTreeNode(node: PollardNode): void {
@@ -147,7 +268,7 @@ export class MerkleDatabase {
         if (pollard) this.layers[layerIndex][position] = pollard;
     }
 
-    getPollardTreeNode({ layerIndex, position }: PollardNode): PollardNode {
+    getPollardTreeNode({ layerIndex, position }: PollardLocation): PollardNode {
         if (this.layers.length <= layerIndex || this.layers[layerIndex].length <= position) {
             return { layerIndex, position, pollard: undefined };
         }
@@ -197,7 +318,7 @@ export class MerkleDatabase {
         }
 
         const parentLayerIndex = node.layerIndex + 1;
-        const parentPosition = Math.floor(node.position / node.pollard.maxLength);
+        const parentPosition = this.calculatePositionInLayer(node.position);
 
         return this.getPollardTreeNode({
             layerIndex: parentLayerIndex,
@@ -217,22 +338,23 @@ export class MerkleDatabase {
 
             for (const leaf of leaves) {
                 const cid = CID.decode(leaf[1]);
-                const value: DataType = await this.heliaDagCbor.get(cid);
-                if (value.dataType !== DataTypes.Pollard) continue;
-                const pollardInput = value as PollardType;
-                const pollard = await createPollard(pollardInput, {
-                    cid,
-                    noUpdate: true,
-                });
+                const pollard = await this.getPollard(cid);
+                if (!pollard) throw new Error("Invalid pollard");
                 this.layers[0].push(pollard);
                 for (const leaf of pollard.iterator()) {
-                    if (leaf[0] === LeafTypes.Pollard) {
-                        leavesNext.push(leaf);
-                    } else if (leaf[0] === LeafTypes.SortedEntry) {
-                        if (!leaf[2]) {
-                            throw new Error("Missing sort fields");
-                        }
-                        this.orderedEntriesMap.setElement(leaf[2][0], CID.decode(leaf[1]));
+                    switch (leaf[0]) {
+                        case LeafTypes.Pollard:
+                            leavesNext.push(leaf);
+                            break;
+
+                        case LeafTypes.SortedEntry:
+                            const cid = CID.decode(leaf[1]);
+                            if (!leaf[2]) throw new Error("Missing sort fields");
+                            if (!leaf[3]) throw new Error("Missing key");
+                            const timestamp = leaf[2][0];
+                            const key = leaf[3];
+                            await this.updateLocalStorageAndMap(timestamp, cid, key);
+                            break;
                     }
                 }
             }
@@ -240,15 +362,15 @@ export class MerkleDatabase {
         }
     }
 
-    async loadData(): Promise<void> {
-        for (const [key, cid] of this.orderedEntriesMap) {
-            const value = await this.heliaDagCbor.get(cid);
-            const verified = await this.identity.verify(value as jose.FlattenedJWS);
-            if (verified) {
-                const decoded = codec.decode(verified) as EntryInterface;
-                console.log({ decoded });
-                this.localStorage.set(decoded.key, decoded.value);
-            }
-        }
+    private async updateLocalStorageAndMap(timestamp: number, cid: CID, key: string, value?: unknown) {
+        this.orderedEntriesMap.setElement(timestamp, { cid, key });
+        await this.storage.set(key, { cid: cid.toString(), value });
+    }
+
+    private async getPollard(cid: CID): Promise<PollardInterface | undefined> {
+        const pollardInput = await this.heliaController.get<PollardType>(cid);
+        if (!pollardInput || pollardInput.dataType !== DataTypes.Pollard) return;
+        const pollard = await createPollard(pollardInput, { cid, noUpdate: true });
+        return pollard;
     }
 }
