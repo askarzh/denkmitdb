@@ -1,24 +1,24 @@
-import {
-    MerkleDatabaseOptions,
-    DataTypes,
-    EntryInput,
-    PollardLocation,
-    PollardType,
-    PollardInterface,
-    PollardNode,
-    LeafType,
-    LeafTypes,
-    IdentityInterface,
-    HeadDatabaseType,
-} from "../interfaces";
-import { createLeaf, createPollard, createEntry } from "./";
-import { HeliaController } from "./utils";
 import { Helia } from "@helia/interface";
-import { CID } from "multiformats/cid";
 import { OrderedMap } from "js-sdsl";
 import Keyv from "keyv";
+import { CID } from "multiformats/cid";
+import {
+    DataTypes,
+    EntryInput,
+    HeadDatabaseType,
+    IdentityInterface,
+    LeafType,
+    LeafTypes,
+    MerkleDatabaseOptions,
+    PollardInterface,
+    PollardLocation,
+    PollardNode,
+    PollardType,
+} from "../interfaces";
+import { createEntry, createLeaf, createPollard } from "./";
+import { HeliaController } from "./utils";
 
-class TimestampConsensusController {} // TODO: Implement TimestampConsensusController
+// class TimestampConsensusController {} // TODO: Implement TimestampConsensusController
 
 export async function createMerkleDatabase({
     database,
@@ -55,7 +55,7 @@ export class MerkleDatabase {
         this.heliaController = new HeliaController(ipfs, identity);
     }
 
-    async open(cid: CID): Promise<void> {}
+    // TODO: async open(cid: CID): Promise<void> {}
 
     async set(key: string, value: object): Promise<void> {
         const { cid, entry } = await createEntry(key, value, this.heliaController);
@@ -74,9 +74,9 @@ export class MerkleDatabase {
         return entry.value;
     }
 
-    async *iterator(): AsyncGenerator<[key: string, value: unknown]> {
-        for (const [timestamp, record] of this.orderedEntriesMap) {
-            const { cid, key } = record;
+    async* iterator(): AsyncGenerator<[key: string, value: unknown]> {
+        for (const orderedEntriesMapElement of this.orderedEntriesMap) {
+            const { key } = orderedEntriesMapElement[1];
             const value = await this.get(key);
             if (value) yield [key, value];
         }
@@ -156,16 +156,21 @@ export class MerkleDatabase {
 
         for (const leaf of difference[1]) {
             if (leaf[0] !== LeafTypes.SortedEntry) continue;
-            const cid = CID.decode(leaf[1]);
-            if (!leaf[2]) throw new Error("Missing sort fields");
-            if (!leaf[3]) throw new Error("Missing key");
-            const timestamp = leaf[2][0];
-            const key = leaf[3];
-            await this.updateLocalStorageAndMap(timestamp, cid, key);
+            const timestamp = await this.extracted(leaf);
             if (timestamp < smallestTimestamp) smallestTimestamp = timestamp;
         }
 
         await this.updateLayers(smallestTimestamp);
+    }
+
+    private async extracted(leaf: LeafType) {
+        const cid = CID.decode(leaf[1]);
+        if (!leaf[2]) throw new Error("Missing sort fields");
+        if (!leaf[3]) throw new Error("Missing key");
+        const timestamp = leaf[2][0];
+        const key = leaf[3];
+        await this.updateLocalStorageAndMap(timestamp, cid, key);
+        return timestamp;
     }
 
     async updateLayers(sortKey: number): Promise<void> {
@@ -238,7 +243,7 @@ export class MerkleDatabase {
 
     private async handlePollardUpdate(pollard: PollardInterface, layerIndex: number, position: number) {
         await pollard.updateLayers();
-        const cid = await this.heliaController.add(pollard.toJSON());
+        await this.heliaController.add(pollard.toJSON());
         this.setPollardTreeNode({ layerIndex, position, pollard });
     }
 
@@ -330,12 +335,7 @@ export class MerkleDatabase {
                             break;
 
                         case LeafTypes.SortedEntry:
-                            const cid = CID.decode(leaf[1]);
-                            if (!leaf[2]) throw new Error("Missing sort fields");
-                            if (!leaf[3]) throw new Error("Missing key");
-                            const timestamp = leaf[2][0];
-                            const key = leaf[3];
-                            await this.updateLocalStorageAndMap(timestamp, cid, key);
+                            await this.extracted(leaf);
                             break;
                     }
                 }
@@ -352,7 +352,6 @@ export class MerkleDatabase {
     private async getPollard(cid: CID): Promise<PollardInterface | undefined> {
         const pollardInput = await this.heliaController.get<PollardType>(cid);
         if (!pollardInput || pollardInput.dataType !== DataTypes.Pollard) return;
-        const pollard = await createPollard(pollardInput, { cid, noUpdate: true });
-        return pollard;
+        return await createPollard(pollardInput, { cid, noUpdate: true });
     }
 }

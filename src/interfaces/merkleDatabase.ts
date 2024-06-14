@@ -2,34 +2,8 @@ import { CID } from "multiformats/cid";
 import type { Helia } from "@helia/interface";
 import type Keyv from "keyv";
 import { IdentityInterface } from "./identity";
+import { ManifestType } from "./manifest";
 
-const MANIFEST_VERSION = 1;
-export type ManifestVersionType = typeof MANIFEST_VERSION;
-
-export enum DataTypes {
-	Entry = 0,
-	Pollard = 1,
-	Identity = 2,
-	Manifest = 3,
-	Head = 4,
-}
-
-export type DataType = {
-	dataType: DataTypes;
-};
-
-export type ManifestType = DataType & {
-	version: ManifestVersionType;
-	database: string;
-	type: string;
-	consensusController: string;
-	accessController: string;
-	creatorId: string;
-};
-
-export interface ManifestInterface extends ManifestType {
-	verify(): Promise<boolean>;
-}
 
 export type MerkleDatabaseType = {
 	version: number;

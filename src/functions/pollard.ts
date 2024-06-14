@@ -1,11 +1,20 @@
-import { sha256 } from "multiformats/hashes/sha2";
-import { CID } from "multiformats/cid";
-import { toString as uint8ArrayToString } from "uint8arrays/to-string";
-import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import * as codec from "@ipld/dag-cbor";
+import { CID } from "multiformats/cid";
+import { sha256 } from "multiformats/hashes/sha2";
+import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 
-import { LeafTypes, LeafType, PollardType, PollardInterface, PollardOptions, DataTypes } from "../interfaces";
+import { DataTypes, LeafType, LeafTypes, PollardInterface, PollardOptions, PollardType } from "../interfaces";
 
+/**
+ * Creates a leaf node for the denkmitdb database.
+ *
+ * @param type - The type of the leaf node.
+ * @param data - The data associated with the leaf node.
+ * @param sortFields - An optional array of sort fields for SortedEntry type.
+ * @param key - An optional key for the leaf node.
+ * @returns The created leaf node.
+ * @throws Error if sortFields are required for SortedEntry type but not provided.
+ */
 export function createLeaf(type?: LeafTypes, data?: Uint8Array, sortFields?: number[], key?: string): LeafType {
     const leaf: LeafType = [type || LeafTypes.Empty, data || new Uint8Array(0)];
     if (type === LeafTypes.SortedEntry && !sortFields) throw new Error("Sort fields are required for SortedEntry");
@@ -15,6 +24,12 @@ export function createLeaf(type?: LeafTypes, data?: Uint8Array, sortFields?: num
     return leaf;
 }
 
+/**
+ * Checks if two leaves are equal.
+ * @param leaf1 - The first leaf to compare.
+ * @param leaf2 - The second leaf to compare.
+ * @returns Returns `true` if the leaves are equal, `false` otherwise.
+ */
 function isLeavesEqual(leaf1: LeafType, leaf2: LeafType): boolean {
     if (leaf1[0] !== leaf2[0]) {
         return false;
@@ -37,6 +52,11 @@ function isLeavesEqual(leaf1: LeafType, leaf2: LeafType): boolean {
     return true;
 }
 
+/**
+ * Represents a Pollard data structure.
+ * The Pollard data structure is used for efficient storage and retrieval of data in a tree-like structure.
+ * It supports operations like appending data, retrieving data, updating layers, and comparing with other Pollard instances.
+ */
 class Pollard implements PollardInterface {
     readonly dataType = DataTypes.Pollard;
     readonly order: number;
@@ -48,6 +68,9 @@ class Pollard implements PollardInterface {
     private _needUpdate: boolean = true;
     private _cid: CID | undefined;
 
+    /**
+     * Represents a Pollard object.
+     */
     constructor(pollard: Partial<PollardType>, options: PollardOptions = {}) {
         if (!pollard.order) {
             throw new Error("Order is required");
@@ -74,6 +97,17 @@ class Pollard implements PollardInterface {
         this._cid = options.cid;
     }
 
+    /**
+     * Appends a leaf to the tree.
+     * 
+     * @param type - The type of the leaf.
+     * @param data - The data to be appended. It can be a CID, Uint8Array, or a string.
+     * @param options - Additional options for appending the leaf (optional).
+     * @param options.sortFields - An array of field indices to sort the leaf by (optional).
+     * @param options.key - The key associated with the leaf (optional).
+     * @returns A promise that resolves to a boolean indicating whether the leaf was successfully appended.
+     * @throws {Error} If the data type is not supported.
+     */
     async append(
         type: LeafTypes,
         data: CID | Uint8Array | string,
@@ -119,7 +153,13 @@ class Pollard implements PollardInterface {
         return this._length;
     }
 
+    /**
+     * Updates the layers of the Pollard object.
+     * 
+     * @returns A Promise that resolves to the CID (Content Identifier) of the updated object.
+     */
     async updateLayers(): Promise<CID> {
+
         for (let i = 0; i < this.order - 1; i++) {
             for (let j = 0; j < 2 ** (this.order - i); j += 2) {
                 const hash1 = this._layers[i][j][1];
@@ -157,10 +197,19 @@ class Pollard implements PollardInterface {
         return this._layers[layerIndex][position];
     }
 
+    /**
+     * Retrieves all the elements in the first layer of the Pollard object.
+     * 
+     * @returns An array of LeafType elements representing all the elements in the first layer.
+     */
     all(): LeafType[] {
         return this._layers[0];
     }
 
+    /**
+     * Returns an iterator that yields each leaf in the tree.
+     * @returns A generator that yields each leaf in the tree.
+     */
     *iterator(): Generator<LeafType> {
         for (const leaf of this._layers[0]) {
             yield leaf;
@@ -196,6 +245,12 @@ class Pollard implements PollardInterface {
         return this._cid;
     }
 
+    /**
+     * Retrieves the CID (Content Identifier) associated with this instance.
+     * If the CID is not available or needs to be updated, it will be fetched by calling the `updateLayers` method.
+     * 
+     * @returns A Promise that resolves to the CID.
+     */
     async getCID(): Promise<CID> {
         if (this._needUpdate || !this._cid) {
             this._cid = await this.updateLayers();
@@ -204,6 +259,11 @@ class Pollard implements PollardInterface {
         return this._cid;
     }
 
+    /**
+     * Converts the Pollard object to a JSON representation.
+     * @returns The JSON representation of the Pollard object.
+     * @throws {Error} If the Pollard object is not updated.
+     */
     toJSON(): PollardType {
         if (this._needUpdate) {
             throw new Error("Pollard is not updated");
@@ -228,6 +288,13 @@ class Pollard implements PollardInterface {
         return this.layers.reduce((acc, layer) => acc + layer.reduce((acc, u) => acc + u.length, 0), 0);
     }
 
+    /**
+     * Compares the nodes of two Pollard trees in a specific order.
+     * @param other - The other Pollard tree to compare with.
+     * @param layerIndex - The index of the current layer in the tree.
+     * @param position - The position of the node in the current layer.
+     * @returns A promise that resolves to an array of two arrays, where the first array contains the nodes from the current tree and the second array contains the nodes from the other tree.
+     */
     private async comparePollardNodesOrdered(
         other: PollardInterface,
         layerIndex: number,
@@ -302,6 +369,14 @@ function isEqualBytes(bytes1: Uint8Array, bytes2: Uint8Array): boolean {
     return true;
 }
 
+/**
+ * Compares two Pollard nodes recursively and returns the differing leaves at each level.
+ * @param first - The first Pollard node to compare.
+ * @param second - The second Pollard node to compare.
+ * @param layerIndex - The index of the current layer being compared.
+ * @param position - The position of the current node within the layer.
+ * @returns A promise that resolves to an array containing the differing leaves at each level.
+ */
 async function comparePollardNodes(
     first: PollardInterface,
     second: PollardInterface,
@@ -348,6 +423,13 @@ export async function comparePollards(
     return await comparePollardNodes(first, second, first.order, 0);
 }
 
+/**
+ * Creates a new Pollard instance with the provided configuration and options.
+ *
+ * @param pollard - The partial configuration for the Pollard instance.
+ * @param options - The options for the Pollard instance.
+ * @returns A Promise that resolves to the created Pollard instance.
+ */
 export async function createPollard(
     pollard: Partial<PollardType>,
     options: PollardOptions = {},

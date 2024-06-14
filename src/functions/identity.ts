@@ -1,20 +1,20 @@
-import { CID } from "multiformats/cid";
-import { toString as uint8ArrayToString } from "uint8arrays/to-string";
-import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
+import type { Helia } from "@helia/interface";
 import * as codec from "@ipld/dag-cbor";
+import { Key } from "interface-datastore";
 import * as jose from "jose";
 import { base64 } from "multiformats/bases/base64";
-import type { Helia } from "@helia/interface";
-import { Key } from "interface-datastore";
+import { CID } from "multiformats/cid";
+import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
+import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 
 import {
+    DataTypes,
+    IdentityInput,
     IdentityInterface,
+    IdentityJWS,
     IdentityType,
     IdentityTypes,
-    IdentityJWS,
-    IdentityInput,
     KeyPair,
-    DataTypes,
 } from "../interfaces";
 
 import { HeliaController } from "./utils";
