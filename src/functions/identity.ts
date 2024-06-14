@@ -30,8 +30,9 @@ class Identity implements IdentityInterface {
     readonly publicKey: string;
     private keys: KeyPair;
     private jws: IdentityJWS;
+    private ipfs: Helia;
 
-    constructor(identity: IdentityType, jws: IdentityJWS, keys: KeyPair) {
+    constructor(identity: IdentityType, jws: IdentityJWS, ipfs:Helia, keys: KeyPair) {
         this.id = identity.id;
         this.name = identity.name;
         this.type = identity.type;
@@ -39,6 +40,7 @@ class Identity implements IdentityInterface {
         this.publicKey = identity.publicKey;
         this.jws = jws;
         this.keys = keys;
+        this.ipfs = ipfs;
     }
 
     toJSON(): IdentityType {
@@ -58,8 +60,19 @@ class Identity implements IdentityInterface {
         }
 
         try {
-            const result = jose.flattenedVerify(jws, this.keys.publicKey);
-            return (await result).payload;
+            const protectedHeader = jose.decodeProtectedHeader(jws);
+            const kid = protectedHeader.kid;
+            if (!kid) {
+                return undefined;
+            }
+            if(kid === this.id) {
+                const result = await jose.flattenedVerify(jws, this.keys.publicKey);
+                return result.payload;
+            }
+            const cid = CID.parse(kid, base64);
+            const identity = await getIdentity(cid, this.ipfs);
+            const result = await identity.verify(jws);
+            return result;
         } catch (error) {
             return undefined;
         }
@@ -165,11 +178,10 @@ async function createJWS(payload: Uint8Array, keys: KeyPair, options?: createJWS
     return await new jose.FlattenedSign(payload).setProtectedHeader(headers).sign(keys.privateKey);
 }
 
-export async function getIdentity(cid: CID, ipfs: Helia, keys: KeyPair): Promise<IdentityInterface> {
+export async function getIdentity(cid: CID, ipfs: Helia, keys?: KeyPair): Promise<IdentityInterface> {
     const identityJWS = await HeliaController.getBlock<IdentityJWS>(ipfs, cid);
-    if (!identityJWS) {
-        throw new Error("Identity not found");
-    }
+    if (!identityJWS) throw new Error("Identity not found");
+
     const verifyResult = await jose.flattenedVerify(identityJWS, jose.EmbeddedJWK);
     const identityInput: IdentityInput = codec.decode(verifyResult.payload);
     const id = cid.toString(base64.encoder);
@@ -178,7 +190,7 @@ export async function getIdentity(cid: CID, ipfs: Helia, keys: KeyPair): Promise
     const publicJwk = codec.decode(uint8ArrayFromString(identity.publicKey, "base64"));
     const publicKey = (await jose.importJWK(publicJwk as jose.JWK)) as jose.KeyLike;
 
-    return new Identity(identity, identityJWS, { ...keys, publicKey });
+    return new Identity(identity, identityJWS, ipfs, { ...keys, publicKey });
 }
 
 type IdentityDatastore = {
@@ -186,12 +198,16 @@ type IdentityDatastore = {
     encryptedPrivateKey: jose.FlattenedJWE;
 };
 
-export async function createIdentity(
-    ipfs: Helia,
-    alg: string = "ES384",
-    name: string = "default",
-    passphrase: string = "password",
-): Promise<IdentityInterface> {
+type IdentityConfig = {
+    ipfs: Helia;
+    alg?: string;
+    name?: string;
+    passphrase?: string;
+};
+
+export async function createIdentity({ ipfs, alg, name, passphrase }: IdentityConfig): Promise<IdentityInterface> {
+    (alg = alg || "ES384"), (name = name || "default"), (passphrase = passphrase || "password");
+
     const key = new Key(`${keyPrefix}/${name}`);
 
     if (await ipfs.datastore.has(key)) {
@@ -229,5 +245,5 @@ export async function createIdentity(
 
     await ipfs.datastore.put(key, codec.encode(identityDatastore));
 
-    return new Identity(identity, identityJWS, keys);
+    return new Identity(identity, identityJWS, ipfs, keys);
 }

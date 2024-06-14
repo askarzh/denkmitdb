@@ -4,7 +4,6 @@ import { gossipsub } from "@chainsafe/libp2p-gossipsub";
 
 import { createLibp2p } from "libp2p";
 import { mdns } from "@libp2p/mdns";
-import { bootstrap } from "@libp2p/bootstrap";
 import { identify } from "@libp2p/identify";
 import { tcp } from "@libp2p/tcp";
 import { keychain } from "@libp2p/keychain";
@@ -14,13 +13,10 @@ import { FsBlockstore } from "blockstore-fs";
 import { FsDatastore } from "datastore-fs";
 import { createHelia } from "helia";
 import { Key } from "interface-datastore/key";
-import { unixfs } from "@helia/unixfs";
 
 import type { Helia } from "@helia/interface";
-import type { UnixFS } from "@helia/unixfs";
 import { MerkleDatabase } from "./functions/merkleDatabase";
 import { createIdentity } from "./functions/identity";
-import { he } from "@faker-js/faker";
 
 const libp2pOptions = {
     addresses: {
@@ -78,7 +74,8 @@ async function createIpfsNode(nodeNumber: number = 1): Promise<Helia> {
 }
 
 let ipfs = await createIpfsNode(1);
-let identity = await createIdentity(ipfs);
+let identity = await createIdentity({ ipfs });
+let identity1 = await createIdentity({ ipfs, name: "test1" });
 
 const mdb = new MerkleDatabase({ database: "test", ipfs, identity });
 
@@ -94,8 +91,11 @@ await mdb.set("key9", { value: "value9" });
 
 const cid = await mdb.getCID();
 console.log("Database: ", cid);
+for await (const e of mdb.iterator()) {
+    console.log(e);
+}
 
-const mdb1 = new MerkleDatabase({ database: "test", ipfs, identity });
+const mdb1 = new MerkleDatabase({ database: "test", ipfs, identity: identity1 });
 await mdb1.load(cid);
 const cid1 = await mdb1.getCID();
 console.log("Database1: ", cid1);
@@ -108,11 +108,18 @@ await mdb1.set("key12-1", { value: "value12-1" });
 await mdb.set("key13", { value: "value13" });
 const cidUpdated = await mdb.getCID();
 console.log("Database with new records: ", cidUpdated);
+for await (const e of mdb.iterator()) {
+    console.log(e);
+}
+console.log("Database1 before merge: -------------------");
+for await (const e of mdb1.iterator()) {
+    console.log(e);
+}
 const head = await mdb.createHead();
 console.log("Head: ", head);
 const head1 = await mdb1.getHead(head);
 console.log("Head1: ", head1);
-if(!head1) process.exit(1);
+if (!head1) process.exit(1);
 const diff = await mdb1.compare(head1);
 console.log("Diff: ", diff.difference[1]);
 
@@ -127,6 +134,5 @@ console.log("Database after merge: ", cidMerged);
 for await (const e of mdb1.iterator()) {
     console.log(e);
 }
-
 
 await ipfs.stop();

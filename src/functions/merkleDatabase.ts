@@ -1,12 +1,11 @@
 import {
+    MerkleDatabaseOptions,
     DataTypes,
-    ManifestType,
     EntryInput,
     PollardLocation,
     PollardType,
     PollardInterface,
     PollardNode,
-    DataType,
     LeafType,
     LeafTypes,
     IdentityInterface,
@@ -19,25 +18,7 @@ import { CID } from "multiformats/cid";
 import { OrderedMap } from "js-sdsl";
 import Keyv from "keyv";
 
-class TimestampConsensusController {}
-
-type EntryTimestampTreeRecord = {
-    sortFields: number[];
-    entryKey: string;
-};
-
-type EntryKeyPollardCidHashMapRecord = {
-    entryKey: string;
-    pollardCid: CID;
-};
-
-// function sortFieldsComparator(a: number[], b: number[]): number {
-//   for (let i = 0; i < a.length; i++) {
-//     const r = a[i] - b[i]
-//     if (r !== 0) return r;
-//   }
-//   return 0;
-// }
+class TimestampConsensusController {} // TODO: Implement TimestampConsensusController
 
 export async function createMerkleDatabase({
     database,
@@ -53,6 +34,7 @@ export async function createMerkleDatabase({
     return new MerkleDatabase({ database, ipfs, identity, storage });
 }
 
+
 export class MerkleDatabase {
     private readonly pollardOrder: number = 3;
     private maxPollardLength: number;
@@ -63,7 +45,7 @@ export class MerkleDatabase {
     private heliaController: HeliaController<HeadDatabaseType | EntryInput | PollardType>;
     private storage: Keyv;
 
-    constructor({ ipfs, identity, storage }: { database: string; storage?: Keyv, ipfs: Helia; identity: IdentityInterface }) {
+    constructor({ ipfs, identity, storage }: MerkleDatabaseOptions) {
         this.layers = [];
         this.orderedEntriesMap = new OrderedMap([], (x: number, y: number) => x - y, true);
         this.ipfs = ipfs;
