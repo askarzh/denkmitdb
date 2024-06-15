@@ -1,65 +1,94 @@
-import { Helia } from "@helia/interface";
 import { OrderedMap } from "js-sdsl";
 import Keyv from "keyv";
 import { CID } from "multiformats/cid";
+import { createEmptyPollard, createEntry, createLeaf, createPollard } from ".";
 import {
-    DataTypes,
+    DENKMITDB_PREFIX,
+    DenkmitDatabaseInput,
+    DenkmitDatabaseInterface,
+    DenkmitDatabaseOptions,
     EntryInput,
-    HeadDatabaseType,
-    IdentityInterface,
-    LeafType,
+    HEAD_VERSION,
+    HeadInput,
+    HeadInterface, LeafType,
     LeafTypes,
-    MerkleDatabaseOptions,
+    MANIFEST_VERSION,
+    ManifestInput,
+    ManifestInterface,
     PollardInterface,
     PollardLocation,
     PollardNode,
-    PollardType,
-} from "../interfaces";
-import { createEntry, createLeaf, createPollard } from "./";
+    PollardType
+} from "../types";
+import { createHead, getHead } from "./head";
+import { createManifest, openManifest } from "./manifest";
 import { HeliaController } from "./utils";
 
 // class TimestampConsensusController {} // TODO: Implement TimestampConsensusController
 
-export async function createMerkleDatabase({
-    database,
-    ipfs,
-    identity,
-    storage,
-}: {
-    database: string;
-    storage?: Keyv;
-    ipfs: Helia;
-    identity: IdentityInterface;
-}): Promise<MerkleDatabase> {
-    return new MerkleDatabase({ database, ipfs, identity, storage });
+export async function createDenkmitDatabase(name: string, options: DenkmitDatabaseOptions): Promise<DenkmitDatabaseInterface> {
+    const heliaController = new HeliaController(options.ipfs, options.identity);
+
+    const manifestInput: ManifestInput = {
+        version: MANIFEST_VERSION,
+        name,
+        type: "denkmit-database-key-value",
+        pollardOrder: 3,
+        consensusController: "timestamp",
+        accessController: "writeAll",
+        creatorId: options.identity.id,
+    };
+
+    const manifest = await createManifest(manifestInput, heliaController);
+
+    const mdb: DenkmitDatabaseInput = {
+        manifest,
+        heliaController,
+        storage: options.storage,
+    };
+
+    return new DenkmitDatabase(mdb);
 }
 
+export async function openDenkmitDatabase(id: string, options: DenkmitDatabaseOptions): Promise<DenkmitDatabaseInterface> {
+    if (!id.startsWith(DENKMITDB_PREFIX)) throw new Error("Invalid id");
 
-export class MerkleDatabase {
-    private readonly pollardOrder: number = 3;
-    private maxPollardLength: number;
+    const cid = id.substring(DENKMITDB_PREFIX.length);
+
+    const heliaController = new HeliaController(options.ipfs, options.identity);
+
+    const manifest = await openManifest(cid, heliaController);
+
+    return new DenkmitDatabase({ manifest, heliaController, storage: options.storage });
+}
+
+export class DenkmitDatabase implements DenkmitDatabaseInterface {
+    readonly manifest: ManifestInterface;
+    readonly pollardOrder: number = 3;
+    readonly maxPollardLength: number;
     readonly layers: PollardInterface[][];
+    readonly heliaController: HeliaController;
+    readonly storage: Keyv;
     private orderedEntriesMap: OrderedMap<number, { cid: CID; key: string }>;
-    private identity: IdentityInterface;
-    private ipfs: Helia;
-    private heliaController: HeliaController<HeadDatabaseType | EntryInput | PollardType>;
-    private storage: Keyv;
 
-    constructor({ ipfs, identity, storage }: MerkleDatabaseOptions) {
+    constructor(mdb: DenkmitDatabaseInput) {
+        this.manifest = mdb.manifest;
         this.layers = [];
         this.orderedEntriesMap = new OrderedMap([], (x: number, y: number) => x - y, true);
-        this.ipfs = ipfs;
-        this.identity = identity;
-        this.storage = storage || new Keyv();
+        this.storage = mdb.storage || new Keyv();
         this.maxPollardLength = 2 ** this.pollardOrder;
-        this.heliaController = new HeliaController(ipfs, identity);
+        this.heliaController = mdb.heliaController;
+    }
+
+    get id(): string {
+        return `${DENKMITDB_PREFIX}${this.manifest.id}`;
     }
 
     // TODO: async open(cid: CID): Promise<void> {}
 
     async set(key: string, value: object): Promise<void> {
-        const { cid, entry } = await createEntry(key, value, this.heliaController);
-        await this.updateLocalStorageAndMap(entry.timestamp, cid, key, value);
+        const entry = await createEntry(key, value, this.heliaController);
+        await this.updateLocalStorageAndMap(entry.timestamp, CID.parse(entry.id), key, value);
         await this.updateLayers(entry.timestamp);
     }
 
@@ -74,12 +103,27 @@ export class MerkleDatabase {
         return entry.value;
     }
 
-    async* iterator(): AsyncGenerator<[key: string, value: unknown]> {
+    async* iterator(): AsyncGenerator<[key: string, value: object]> {
         for (const orderedEntriesMapElement of this.orderedEntriesMap) {
             const { key } = orderedEntriesMapElement[1];
             const value = await this.get(key);
             if (value) yield [key, value];
         }
+    }
+
+    async close(): Promise<void> {
+        await this.storage.clear();
+        this.layers.length = 0;
+        this.orderedEntriesMap.clear();
+        await this.heliaController.close();
+    }
+
+    async getManifest(): Promise<ManifestInterface> {
+        return this.manifest;
+    }
+
+    getLayers(): PollardInterface[][] {
+        return this.layers;
     }
 
     async getCID(): Promise<CID> {
@@ -88,10 +132,52 @@ export class MerkleDatabase {
         return await lastLayer[0].getCID();
     }
 
-    getLayers(): PollardInterface[][] {
-        return this.layers;
+    async createHead(): Promise<HeadInterface> {
+        const headInput: HeadInput = {
+            version: HEAD_VERSION,
+            manifest: this.manifest.id,
+            root: (await this.getCID()).toString(),
+            timestamp: Date.now(),
+            creatorId: this.heliaController.identity.id,
+            layersCount: this.layers.length,
+            size: this.orderedEntriesMap.size(),
+        };
+
+        return await createHead(headInput, this.heliaController);
     }
 
+    async getHead(cid: CID): Promise<HeadInterface> {
+        return await getHead(cid, this.heliaController);
+    }
+
+    async compare(head: HeadInterface): Promise<{ isEqual: boolean; difference: [LeafType[], LeafType[]] }> {
+        const layersCount = Math.max(this.layers.length, head.layersCount);
+        const order = layersCount - 1;
+
+        const difference = await this.compareNodes(layersCount, CID.parse(head.root), { layerIndex: order, position: 0 });
+
+        difference[0] = difference[0].filter((x) => x[0] !== LeafTypes.Empty);
+        difference[1] = difference[1].filter((x) => x[0] !== LeafTypes.Empty);
+
+        const isEqual = difference[0].length === 0 && difference[1].length === 0;
+
+        return { isEqual, difference };
+    }
+
+    async merge(head: HeadInterface): Promise<void> {
+        const { isEqual, difference } = await this.compare(head);
+        if (isEqual) return;
+
+        let smallestTimestamp = Number.MAX_SAFE_INTEGER;
+
+        for (const leaf of difference[1]) {
+            if (leaf[0] !== LeafTypes.SortedEntry) continue;
+            const timestamp = await this.extracted(leaf);
+            if (timestamp < smallestTimestamp) smallestTimestamp = timestamp;
+        }
+
+        await this.updateLayers(smallestTimestamp);
+    }
     private async compareNodes(
         layersCount: number,
         root: CID | undefined,
@@ -103,7 +189,7 @@ export class MerkleDatabase {
 
         if (!thisPollard && !otherPollard) return result;
 
-        thisPollard = thisPollard || (await createPollard({ order: this.pollardOrder }));
+        thisPollard = thisPollard || (await createEmptyPollard(this.pollardOrder));
 
         const comp = await thisPollard.compare(otherPollard);
         if (comp.isEqual) return result;
@@ -134,35 +220,6 @@ export class MerkleDatabase {
         return result;
     }
 
-    async compare(head: HeadDatabaseType): Promise<{ isEqual: boolean; difference: [LeafType[], LeafType[]] }> {
-        const layersCount = Math.max(this.layers.length, head.layersCount);
-        const order = layersCount - 1;
-
-        const difference = await this.compareNodes(layersCount, head.root, { layerIndex: order, position: 0 });
-
-        difference[0] = difference[0].filter((x) => x[0] !== LeafTypes.Empty);
-        difference[1] = difference[1].filter((x) => x[0] !== LeafTypes.Empty);
-
-        const isEqual = difference[0].length === 0 && difference[1].length === 0;
-
-        return { isEqual, difference };
-    }
-
-    async merge(head: HeadDatabaseType): Promise<void> {
-        const { isEqual, difference } = await this.compare(head);
-        if (isEqual) return;
-
-        let smallestTimestamp = Number.MAX_SAFE_INTEGER;
-
-        for (const leaf of difference[1]) {
-            if (leaf[0] !== LeafTypes.SortedEntry) continue;
-            const timestamp = await this.extracted(leaf);
-            if (timestamp < smallestTimestamp) smallestTimestamp = timestamp;
-        }
-
-        await this.updateLayers(smallestTimestamp);
-    }
-
     private async extracted(leaf: LeafType) {
         const cid = CID.decode(leaf[1]);
         if (!leaf[2]) throw new Error("Missing sort fields");
@@ -180,7 +237,7 @@ export class MerkleDatabase {
         const [startKey] = this.orderedEntriesMap.getElementByPos(indexStart);
         const startPosition = this.calculatePositionInLayer(indexStart);
 
-        let pollard = await createPollard({ order: this.pollardOrder });
+        let pollard = await createEmptyPollard(this.pollardOrder);
         let layerIndex = 0;
 
         let position = startPosition;
@@ -196,7 +253,7 @@ export class MerkleDatabase {
 
         await this.handlePollardUpdate(pollard, layerIndex, position);
 
-        pollard = await createPollard({ order: this.pollardOrder });
+        pollard = await createEmptyPollard(this.pollardOrder);
         for (layerIndex++; this.layers[layerIndex - 1].length > 1; layerIndex++) {
             if (this.layers.length === layerIndex) this.layers.push([]);
             position = this.calculatePositionInLayer(startPosition, layerIndex);
@@ -210,24 +267,6 @@ export class MerkleDatabase {
         }
     }
 
-    async createHead(): Promise<CID> {
-        const head: HeadDatabaseType = {
-            version: 1,
-            manifest: CID.parse("bafyreidlekjmlbekthtxhbpz3ujny2lbqtlin7evmy3ohcjuvxf3yw74wm"), // TODO: Add manifest CID
-            root: await this.getCID(),
-            timestamp: Date.now(),
-            creatorId: this.identity.id,
-            layersCount: this.layers.length,
-            size: this.orderedEntriesMap.size(),
-        };
-
-        return await this.heliaController.addSigned(head);
-    }
-
-    async getHead(cid: CID): Promise<HeadDatabaseType | undefined> {
-        return await this.heliaController.getSigned<HeadDatabaseType>(cid);
-    }
-
     private calculatePositionInLayer(entryPosition: number, layerIndex: number = 1): number {
         return Math.floor(entryPosition / this.maxPollardLength ** layerIndex);
     }
@@ -235,7 +274,7 @@ export class MerkleDatabase {
     private async handlePollardCreation(pollard: PollardInterface, layerIndex: number, position: number) {
         if (!pollard.isFree()) {
             await this.handlePollardUpdate(pollard, layerIndex, position);
-            pollard = await createPollard({ order: this.pollardOrder });
+            pollard = await createEmptyPollard(this.pollardOrder);
             position++;
         }
         return { pollard, position };
@@ -313,8 +352,9 @@ export class MerkleDatabase {
         });
     }
 
-    async load(rootPollardCid: CID): Promise<void> {
-        let leaves: LeafType[] = [createLeaf(LeafTypes.Pollard, rootPollardCid.bytes)];
+    async load(head: HeadInterface): Promise<void> {
+        const pollardCid = CID.parse(head.root);
+        let leaves: LeafType[] = [createLeaf(LeafTypes.Pollard, pollardCid.bytes)];
 
         this.layers.length = 0;
 
@@ -351,7 +391,7 @@ export class MerkleDatabase {
 
     private async getPollard(cid: CID): Promise<PollardInterface | undefined> {
         const pollardInput = await this.heliaController.get<PollardType>(cid);
-        if (!pollardInput || pollardInput.dataType !== DataTypes.Pollard) return;
+        if (!pollardInput) return;
         return await createPollard(pollardInput, { cid, noUpdate: true });
     }
 }

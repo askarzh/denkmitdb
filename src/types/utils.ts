@@ -9,3 +9,5 @@ export enum DataTypes {
 export type DataType = {
 	dataType: DataTypes;
 };
+
+export type CIDstring = string;

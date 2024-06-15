@@ -3,7 +3,7 @@ import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 
-import { DataTypes, LeafType, LeafTypes, PollardInterface, PollardOptions, PollardType } from "../interfaces";
+import { LeafType, LeafTypes, POLLARD_VERSION, PollardInput, PollardInterface, PollardOptions, PollardType } from "../types";
 
 /**
  * Creates a leaf node for the denkmitdb database.
@@ -58,9 +58,10 @@ function isLeavesEqual(leaf1: LeafType, leaf2: LeafType): boolean {
  * It supports operations like appending data, retrieving data, updating layers, and comparing with other Pollard instances.
  */
 class Pollard implements PollardInterface {
-    readonly dataType = DataTypes.Pollard;
+    readonly version = POLLARD_VERSION;
     readonly order: number;
     readonly maxLength: number;
+    private _id: string;
     readonly codec;
     private readonly _hashFunc: (data: Uint8Array) => Promise<Uint8Array>;
     private _layers: LeafType[][];
@@ -71,10 +72,7 @@ class Pollard implements PollardInterface {
     /**
      * Represents a Pollard object.
      */
-    constructor(pollard: Partial<PollardType>, options: PollardOptions = {}) {
-        if (!pollard.order) {
-            throw new Error("Order is required");
-        }
+    constructor(pollard: PollardInput, options: PollardOptions = {}) {
         if (pollard.order <= 0 || pollard.order >= 8) {
             throw new Error("Order must be greater than 0 or less than or equal 8");
         }
@@ -95,6 +93,14 @@ class Pollard implements PollardInterface {
         }
 
         this._cid = options.cid;
+        this._id = pollard.id || this._cid?.toString() || "";
+    }
+
+    get id(): string {
+        if (this._id === "") {
+            throw new Error("Pollard ID is not available");
+        }
+        return this._id;
     }
 
     /**
@@ -178,6 +184,8 @@ class Pollard implements PollardInterface {
         const hash = await sha256.digest(buf);
         this._cid = CID.createV1(codec.code, hash);
 
+        this._id = this._cid.toString();
+
         return this._cid;
     }
 
@@ -238,13 +246,6 @@ class Pollard implements PollardInterface {
         return this._layers;
     }
 
-    get cid(): CID {
-        if (!this._cid || this._needUpdate) {
-            throw new Error("Pollard is not updated");
-        }
-        return this._cid;
-    }
-
     /**
      * Retrieves the CID (Content Identifier) associated with this instance.
      * If the CID is not available or needs to be updated, it will be fetched by calling the `updateLayers` method.
@@ -264,12 +265,12 @@ class Pollard implements PollardInterface {
      * @returns The JSON representation of the Pollard object.
      * @throws {Error} If the Pollard object is not updated.
      */
-    toJSON(): PollardType {
+    toJSON(): Omit<PollardType, "id"> {
         if (this._needUpdate) {
             throw new Error("Pollard is not updated");
         }
         return {
-            dataType: this.dataType,
+            version: this.version,
             order: this.order,
             maxLength: this.maxLength,
             length: this._length,
@@ -337,7 +338,7 @@ class Pollard implements PollardInterface {
             throw new Error("Orders are different");
         }
 
-        other = other || new Pollard({ order: this.order });
+        other = other || await createEmptyPollard(this.order);
 
         const difference = await this.comparePollardNodesOrdered(other, this.order, 0);
 
@@ -431,12 +432,22 @@ export async function comparePollards(
  * @returns A Promise that resolves to the created Pollard instance.
  */
 export async function createPollard(
-    pollard: Partial<PollardType>,
+    pollard: PollardInput,
     options: PollardOptions = {},
 ): Promise<PollardInterface> {
     const res = new Pollard(pollard, options);
     await res.updateLayers();
     return res;
+}
+
+export async function createEmptyPollard(order: number): Promise<PollardInterface> {
+    const pollard: PollardInput = {
+        order,
+        length: 0,
+        layers: Array.from({ length: order }, (_, i) =>
+            Array.from({ length: 2 ** (order - i) }, () => createLeaf())),
+    };
+    return await createPollard(pollard);
 }
 
 /*

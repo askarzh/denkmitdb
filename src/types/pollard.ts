@@ -1,5 +1,5 @@
 import { CID } from "multiformats/cid";
-import { DataType } from ".";
+import { Optional } from "utility-types";
 
 export enum LeafTypes {
     Empty = 0,
@@ -17,12 +17,19 @@ export type PollardLocation = {
 		position: number;
 };
 
-export type PollardType = DataType & {
+export const POLLARD_VERSION = 1;
+export type PollardVersionType = typeof POLLARD_VERSION;
+
+export type PollardType = {
+    readonly version: PollardVersionType;
     readonly order: number;
     readonly maxLength: number;
     readonly length: number;
     readonly layers: LeafType[][];
+    readonly id: string; // encoded CID to string
 };
+
+export type PollardInput = Optional<Omit<PollardType, "version" | "maxLength">, "id">;
 
 export interface PollardInterface extends PollardType {
     append(
@@ -33,7 +40,7 @@ export interface PollardInterface extends PollardType {
 
     getCID(): Promise<CID>;
     getRoot(): Promise<LeafType>;
-    toJSON(): PollardType;
+    toJSON(): Omit<PollardType, "id">;
     iterator(): Generator<LeafType>;
     all(): LeafType[];
     isFree(): boolean;
@@ -51,6 +58,9 @@ export interface PollardInterface extends PollardType {
 export type PollardNode = PollardLocation & {
     pollard?: PollardInterface;
 };
+
+export declare function createEmptyPollard(order: number): Promise<PollardInterface>;
+
 
 export type PollardOptions = {
     cid?: CID;

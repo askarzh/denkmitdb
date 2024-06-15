@@ -3,21 +3,21 @@ import * as codec from "@ipld/dag-cbor";
 import * as jose from "jose";
 import type { Helia } from "@helia/interface";
 import { DAGCBOR, dagCbor } from "@helia/dag-cbor";
-import { IdentityInterface } from "src/interfaces";
+import { IdentityInterface } from "src/types";
 
-export class HeliaController<T> {
+export class HeliaController {
     private ipfs: Helia;
     readonly identity: IdentityInterface;
-    private heilaDagCbor: DAGCBOR;
+    private heliaDagCbor: DAGCBOR;
 
     constructor(ipfs: Helia, identity: IdentityInterface) {
         this.ipfs = ipfs;
         this.identity = identity;
-        this.heilaDagCbor = dagCbor(ipfs);
+        this.heliaDagCbor = dagCbor(ipfs);
     }
 
-    async add(obj: T | jose.FlattenedJWS): Promise<CID> {
-        const cid = await this.heilaDagCbor.add(obj);
+    async add(obj: unknown | jose.FlattenedJWS): Promise<CID> {
+        const cid = await this.heliaDagCbor.add(obj);
         if (!(await this.ipfs.pins.isPinned(cid))) {
             await this.ipfs.pins.add(cid);
         }
@@ -25,13 +25,13 @@ export class HeliaController<T> {
         return cid;
     }
 
-    async addSigned(obj: T): Promise<CID> {
+    async addSigned(obj: unknown): Promise<CID> {
         const signed = await this.identity.sign(codec.encode(obj));
         return await this.add(signed);
     }
 
     async get<T>(cid: CID): Promise<T | undefined> {
-        return await this.heilaDagCbor.get<T>(cid);
+        return await this.heliaDagCbor.get<T>(cid);
     }
 
     async getSigned<T>(cid: CID): Promise<T | undefined> {
@@ -56,5 +56,8 @@ export class HeliaController<T> {
     static async getBlock<T>(ipfs: Helia, cid: CID): Promise<T | undefined> {
         const d = dagCbor(ipfs);
         return await d.get<T>(cid);
+    }
+
+    async close(): Promise<void> {
     }
 }

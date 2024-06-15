@@ -2,37 +2,38 @@ import type { Helia } from "@helia/interface";
 import * as codec from "@ipld/dag-cbor";
 import { Key } from "interface-datastore";
 import * as jose from "jose";
-import { base64 } from "multiformats/bases/base64";
 import { CID } from "multiformats/cid";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 
 import {
-    DataTypes,
+    IDENTITY_VERSION,
+    IdentityAlgorithms,
     IdentityInput,
     IdentityInterface,
     IdentityJWS,
     IdentityType,
     IdentityTypes,
-    KeyPair,
-} from "../interfaces";
+    KeyPair
+} from "../types";
 
 import { HeliaController } from "./utils";
+import { Optional } from "utility-types";
 
 const keyPrefix = "/Denkmit/";
 
 class Identity implements IdentityInterface {
-    readonly dataType = DataTypes.Identity;
+    readonly version = IDENTITY_VERSION;
     readonly id: string;
     readonly name: string;
     readonly type: IdentityTypes;
-    readonly alg: string;
+    readonly alg: IdentityAlgorithms;
     readonly publicKey: string;
     private keys: KeyPair;
     private jws: IdentityJWS;
     private ipfs: Helia;
 
-    constructor(identity: IdentityType, jws: IdentityJWS, ipfs:Helia, keys: KeyPair) {
+    constructor(identity: Optional<IdentityType, "version">, jws: IdentityJWS, ipfs:Helia, keys: KeyPair) {
         this.id = identity.id;
         this.name = identity.name;
         this.type = identity.type;
@@ -45,12 +46,12 @@ class Identity implements IdentityInterface {
 
     toJSON(): IdentityType {
         return {
-            dataType: this.dataType,
-            id: this.id,
+            version: this.version,
             name: this.name,
             type: this.type,
             alg: this.alg,
             publicKey: this.publicKey,
+            id: this.id,
         };
     }
 
@@ -69,7 +70,7 @@ class Identity implements IdentityInterface {
                 const result = await jose.flattenedVerify(jws, this.keys.publicKey);
                 return result.payload;
             }
-            const cid = CID.parse(kid, base64);
+            const cid = CID.parse(kid);
             const identity = await getIdentity(cid, this.ipfs);
             const result = await identity.verify(jws);
             return result;
@@ -184,7 +185,7 @@ export async function getIdentity(cid: CID, ipfs: Helia, keys?: KeyPair): Promis
 
     const verifyResult = await jose.flattenedVerify(identityJWS, jose.EmbeddedJWK);
     const identityInput: IdentityInput = codec.decode(verifyResult.payload);
-    const id = cid.toString(base64.encoder);
+    const id = cid.toString();
     const identity: IdentityType = { ...identityInput, id };
 
     const publicJwk = codec.decode(uint8ArrayFromString(identity.publicKey, "base64"));
@@ -200,7 +201,7 @@ type IdentityDatastore = {
 
 type IdentityConfig = {
     ipfs: Helia;
-    alg?: string;
+    alg?: IdentityAlgorithms;
     name?: string;
     passphrase?: string;
 };
@@ -225,7 +226,7 @@ export async function createIdentity({ ipfs, alg, name, passphrase }: IdentityCo
     const encryptedPrivateKey = await exportPrivateKey(keys, passphrase);
 
     const identityToSign: IdentityInput = {
-        dataType: DataTypes.Identity,
+        version: IDENTITY_VERSION,
         name,
         type: IdentityTypes.publicKey,
         alg,
