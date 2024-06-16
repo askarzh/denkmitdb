@@ -1,12 +1,12 @@
-import { CID } from "multiformats/cid";
-import type { Helia } from "@helia/interface";
 import type Keyv from "keyv";
-import { IdentityInterface } from "./identity";
-import { ManifestInterface, ManifestType } from "./manifest";
+import { CID } from "multiformats/cid";
 import { HeliaController } from "src/functions";
-import { LeafType, PollardInterface } from "./pollard";
-import { HeadInterface } from "./head";
 import { Optional } from "utility-types";
+import { HeadInterface } from "./head";
+import { IdentityInterface } from "./identity";
+import { ManifestInterface } from "./manifest";
+import { LeafType, PollardInterface } from "./pollard";
+import { DenkmitHelia } from "./utils";
 
 export const DENKMITDB_PREFIX = "/denkmitdb/";
 
@@ -43,7 +43,7 @@ export interface DenkmitDatabaseInterface extends DenkmitDatabaseType {
 
 export type DenkmitDatabaseOptions = {
 	storage?: Keyv;
-	ipfs: Helia;
+	ipfs: DenkmitHelia;
 	identity: IdentityInterface;
 }
 

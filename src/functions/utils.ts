@@ -1,16 +1,17 @@
-import { CID } from "multiformats/cid";
+import { DAGCBOR, dagCbor } from "@helia/dag-cbor";
 import * as codec from "@ipld/dag-cbor";
 import * as jose from "jose";
-import type { Helia } from "@helia/interface";
-import { DAGCBOR, dagCbor } from "@helia/dag-cbor";
-import { IdentityInterface } from "src/types";
+import { CID } from "multiformats/cid";
+import { DenkmitHelia, IdentityInterface } from "src/types";
+
+
 
 export class HeliaController {
-    private ipfs: Helia;
+    readonly ipfs: DenkmitHelia;
     readonly identity: IdentityInterface;
     private heliaDagCbor: DAGCBOR;
 
-    constructor(ipfs: Helia, identity: IdentityInterface) {
+    constructor(ipfs: DenkmitHelia, identity: IdentityInterface) {
         this.ipfs = ipfs;
         this.identity = identity;
         this.heliaDagCbor = dagCbor(ipfs);
@@ -43,7 +44,7 @@ export class HeliaController {
         return decoded;
     }
 
-    static async addBlock(ipfs: Helia, obj: any): Promise<CID> {
+    static async addBlock(ipfs: DenkmitHelia, obj: any): Promise<CID> {
         const d = dagCbor(ipfs);
         const cid = await d.add(obj);
         if (!(await ipfs.pins.isPinned(cid))) {
@@ -53,7 +54,7 @@ export class HeliaController {
         return cid;
     }
 
-    static async getBlock<T>(ipfs: Helia, cid: CID): Promise<T | undefined> {
+    static async getBlock<T>(ipfs: DenkmitHelia, cid: CID): Promise<T | undefined> {
         const d = dagCbor(ipfs);
         return await d.get<T>(cid);
     }

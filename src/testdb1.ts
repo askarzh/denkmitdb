@@ -18,6 +18,8 @@ import type { Helia } from "@helia/interface";
 import { CID } from "multiformats/cid";
 import { createDenkmitDatabase, openDenkmitDatabase } from "./functions/denkmitdb";
 import { createIdentity } from "./functions/identity";
+import { DenkmitHelia } from "./types";
+import confirm from '@inquirer/confirm';
 
 const libp2pOptions = {
     addresses: {
@@ -33,7 +35,7 @@ const libp2pOptions = {
     },
 };
 
-async function createIpfsNode(nodeNumber: number = 1): Promise<Helia> {
+async function createIpfsNode(nodeNumber: number = 1): Promise<DenkmitHelia> {
     const directory = `node${nodeNumber}`;
     const blockstore = new FsBlockstore(`${directory}/block-store`);
     const datastore = new FsDatastore(`${directory}/data-store`);
@@ -65,7 +67,7 @@ async function createIpfsNode(nodeNumber: number = 1): Promise<Helia> {
         await chain.importPeer("self", libp2p.peerId);
     }
 
-    const ipfs: Helia = await createHelia({
+    const ipfs = await createHelia({
         datastore,
         blockstore,
         libp2p,
@@ -75,8 +77,7 @@ async function createIpfsNode(nodeNumber: number = 1): Promise<Helia> {
 }
 
 let ipfs = await createIpfsNode(1);
-let identity = await createIdentity({ ipfs });
-let identity1 = await createIdentity({ ipfs, name: "test1" });
+let identity = await createIdentity({ ipfs, name: "user" });
 
 const mdb = await createDenkmitDatabase("test", { ipfs, identity });
 
@@ -96,46 +97,24 @@ for await (const e of mdb.iterator()) {
     console.log(e);
 }
 
-let head = await mdb.createHead();
+await confirm({ message: "Continue to add more records?" });
 
-const mdb1 = await openDenkmitDatabase(address, { ipfs, identity: identity1 });
-await mdb1.load(head);
-const address1 = mdb1.id;
-console.log("Database1 address: ", address1);
 
 await mdb.set("key10", { value: "value10" });
-await mdb1.set("key10-1", { value: "value10-1" });
 await mdb.set("key11", { value: "value11" });
 await mdb.set("key12", { value: "value12" });
-await mdb1.set("key12-1", { value: "value12-1" });
 await mdb.set("key13", { value: "value13" });
-const cidUpdated = await mdb.createHead();
-console.log("Database with new records: ", cidUpdated);
+
 for await (const e of mdb.iterator()) {
     console.log(e);
 }
-console.log("Database1 before merge: -------------------");
-for await (const e of mdb1.iterator()) {
-    console.log(e);
-}
-head = await mdb.createHead();
-console.log("Head: ", head);
-const head1 = await mdb1.getHead(CID.parse(head.id));
-console.log("Head1: ", head1);
-if (!head1) process.exit(1);
-const diff = await mdb1.compare(head1);
-console.log("Diff: ", diff.difference[1]);
 
-for await (const e of mdb1.iterator()) {
+await confirm({ message: "Wait to update?" });
+
+for await (const e of mdb.iterator()) {
     console.log(e);
 }
 
-await mdb1.merge(head1);
-const cidMerged = await mdb1.createHead();
-console.log("Database after merge: ", cidMerged);
+await confirm({ message: "Close?" });
 
-for await (const e of mdb1.iterator()) {
-    console.log(e);
-}
-
-await ipfs.stop();
+await mdb.close();

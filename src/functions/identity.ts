@@ -1,4 +1,3 @@
-import type { Helia } from "@helia/interface";
 import * as codec from "@ipld/dag-cbor";
 import { Key } from "interface-datastore";
 import * as jose from "jose";
@@ -7,6 +6,7 @@ import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 
 import {
+    DenkmitHelia,
     IDENTITY_VERSION,
     IdentityAlgorithms,
     IdentityInput,
@@ -17,8 +17,8 @@ import {
     KeyPair
 } from "../types";
 
-import { HeliaController } from "./utils";
 import { Optional } from "utility-types";
+import { HeliaController } from "./utils";
 
 const keyPrefix = "/Denkmit/";
 
@@ -31,9 +31,9 @@ class Identity implements IdentityInterface {
     readonly publicKey: string;
     private keys: KeyPair;
     private jws: IdentityJWS;
-    private ipfs: Helia;
+    private ipfs: DenkmitHelia;
 
-    constructor(identity: Optional<IdentityType, "version">, jws: IdentityJWS, ipfs:Helia, keys: KeyPair) {
+    constructor(identity: Optional<IdentityType, "version">, jws: IdentityJWS, ipfs:DenkmitHelia, keys: KeyPair) {
         this.id = identity.id;
         this.name = identity.name;
         this.type = identity.type;
@@ -179,7 +179,7 @@ async function createJWS(payload: Uint8Array, keys: KeyPair, options?: createJWS
     return await new jose.FlattenedSign(payload).setProtectedHeader(headers).sign(keys.privateKey);
 }
 
-export async function getIdentity(cid: CID, ipfs: Helia, keys?: KeyPair): Promise<IdentityInterface> {
+export async function getIdentity(cid: CID, ipfs: DenkmitHelia, keys?: KeyPair): Promise<IdentityInterface> {
     const identityJWS = await HeliaController.getBlock<IdentityJWS>(ipfs, cid);
     if (!identityJWS) throw new Error("Identity not found");
 
@@ -200,7 +200,7 @@ type IdentityDatastore = {
 };
 
 type IdentityConfig = {
-    ipfs: Helia;
+    ipfs: DenkmitHelia;
     alg?: IdentityAlgorithms;
     name?: string;
     passphrase?: string;

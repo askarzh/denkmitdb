@@ -20,9 +20,13 @@ import {
     PollardNode,
     PollardType
 } from "../types";
+import type { Message } from '@libp2p/interface';
+
 import { createHead, getHead } from "./head";
 import { createManifest, openManifest } from "./manifest";
 import { HeliaController } from "./utils";
+import { createSyncController, SyncController } from "./sync";
+import { he } from "@faker-js/faker";
 
 // class TimestampConsensusController {} // TODO: Implement TimestampConsensusController
 
@@ -41,13 +45,18 @@ export async function createDenkmitDatabase(name: string, options: DenkmitDataba
 
     const manifest = await createManifest(manifestInput, heliaController);
 
+    const sync = await createSyncController(manifest.name, heliaController);
+
     const mdb: DenkmitDatabaseInput = {
         manifest,
         heliaController,
         storage: options.storage,
     };
 
-    return new DenkmitDatabase(mdb);
+    const dmdb = new DenkmitDatabase(mdb, sync);
+    dmdb.setupSync();
+
+    return dmdb;
 }
 
 export async function openDenkmitDatabase(id: string, options: DenkmitDatabaseOptions): Promise<DenkmitDatabaseInterface> {
@@ -59,7 +68,12 @@ export async function openDenkmitDatabase(id: string, options: DenkmitDatabaseOp
 
     const manifest = await openManifest(cid, heliaController);
 
-    return new DenkmitDatabase({ manifest, heliaController, storage: options.storage });
+    const sync = await createSyncController(manifest.name, heliaController);
+
+    const dmdb = new DenkmitDatabase({ manifest, heliaController, storage: options.storage }, sync);
+    dmdb.setupSync();
+
+    return dmdb;
 }
 
 export class DenkmitDatabase implements DenkmitDatabaseInterface {
@@ -70,14 +84,17 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
     readonly heliaController: HeliaController;
     readonly storage: Keyv;
     private orderedEntriesMap: OrderedMap<number, { cid: CID; key: string }>;
+    private readonly sync: SyncController;
+    private head?: HeadInterface;
 
-    constructor(mdb: DenkmitDatabaseInput) {
+    constructor(mdb: DenkmitDatabaseInput, sync: SyncController) {
         this.manifest = mdb.manifest;
         this.layers = [];
         this.orderedEntriesMap = new OrderedMap([], (x: number, y: number) => x - y, true);
         this.storage = mdb.storage || new Keyv();
         this.maxPollardLength = 2 ** this.pollardOrder;
         this.heliaController = mdb.heliaController;
+        this.sync = sync
     }
 
     get id(): string {
@@ -89,7 +106,7 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
     async set(key: string, value: object): Promise<void> {
         const entry = await createEntry(key, value, this.heliaController);
         await this.updateLocalStorageAndMap(entry.timestamp, CID.parse(entry.id), key, value);
-        await this.updateLayers(entry.timestamp);
+        await this.createTaskUpdateLayers(entry.timestamp);
     }
 
     async get(key: string): Promise<object | undefined> {
@@ -112,6 +129,7 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
     }
 
     async close(): Promise<void> {
+        await this.sync.close();
         await this.storage.clear();
         this.layers.length = 0;
         this.orderedEntriesMap.clear();
@@ -132,22 +150,38 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
         return await lastLayer[0].getCID();
     }
 
-    async createHead(): Promise<HeadInterface> {
+    async createOnlyNewHead(): Promise<HeadInterface | undefined> {
+        if (this.orderedEntriesMap.size() === 0) return undefined;
+        const cid = await this.getCID();
+        const root = cid.toString();
+
+        if (this.head && this.head.root === root) return undefined;
+
         const headInput: HeadInput = {
             version: HEAD_VERSION,
             manifest: this.manifest.id,
-            root: (await this.getCID()).toString(),
+            root,
             timestamp: Date.now(),
             creatorId: this.heliaController.identity.id,
             layersCount: this.layers.length,
             size: this.orderedEntriesMap.size(),
         };
 
-        return await createHead(headInput, this.heliaController);
+        this.head = await createHead(headInput, this.heliaController);
+
+        return this.head;
+    }
+
+    async createHead(): Promise<HeadInterface> {
+        return await this.createOnlyNewHead() || this.head!;
     }
 
     async getHead(cid: CID): Promise<HeadInterface> {
         return await getHead(cid, this.heliaController);
+    }
+
+    get size(): number {
+        return this.orderedEntriesMap.size();
     }
 
     async compare(head: HeadInterface): Promise<{ isEqual: boolean; difference: [LeafType[], LeafType[]] }> {
@@ -176,7 +210,7 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
             if (timestamp < smallestTimestamp) smallestTimestamp = timestamp;
         }
 
-        await this.updateLayers(smallestTimestamp);
+        await this.createTaskUpdateLayers(smallestTimestamp);
     }
     private async compareNodes(
         layersCount: number,
@@ -228,6 +262,12 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
         const key = leaf[3];
         await this.updateLocalStorageAndMap(timestamp, cid, key);
         return timestamp;
+    }
+
+    async createTaskUpdateLayers(sortKey: number): Promise<void> {
+        this.sync.addTask(async () => {
+            await this.updateLayers(sortKey);
+        });
     }
 
     async updateLayers(sortKey: number): Promise<void> {
@@ -393,5 +433,36 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
         const pollardInput = await this.heliaController.get<PollardType>(cid);
         if (!pollardInput) return;
         return await createPollard(pollardInput, { cid, noUpdate: true });
+    }
+
+    async syncNewHead(message: CustomEvent<Message>): Promise<void> {
+        console.log("syncNewHead", message);
+        const cid = CID.decode(message.detail.data);
+        console.log({ cid })
+        this.sync.addTask(async () => {
+            const head = await this.getHead(cid);
+
+            if (this.size === 0) {
+                await this.load(head);
+            } else {
+                await this.merge(head);
+            }
+        });
+    }
+
+    async sendHead(): Promise<void> {
+        const head = await this.createOnlyNewHead();
+        if (head)
+            await this.sync.sendHead(head);
+    }
+
+    async setupSync(): Promise<void> {
+        await this.sync.start(async (message: CustomEvent<Message>) => await this.syncNewHead(message));
+        await this.sync.addRepetitiveTask(async () => {
+            const head = await this.createOnlyNewHead();
+            console.log({ head })
+            if (head)
+                await this.sync.sendHead(head);
+        }, 30000);
     }
 }
