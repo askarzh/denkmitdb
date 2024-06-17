@@ -12,7 +12,7 @@ import * as codec from "@ipld/dag-cbor";
 import { createHash } from "crypto";
 import { code } from "@ipld/dag-cbor";
 
-const value = { 
+const value = {
   hello: "world",
   l: [[new Uint8Array(8), 2, 3], [4, 5, 6], [7, 8, 9]],
 };
@@ -23,6 +23,9 @@ const block = await Block.encode({ value, codec, hasher: sha256 });
 
 const cid = block.cid
 console.log(cid);
+
+const tc = typeof cid;
+console.log({ tc });
 
 const cid1 = CID.decode(cid.bytes);
 console.log(cid1);

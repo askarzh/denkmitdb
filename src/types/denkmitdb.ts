@@ -6,7 +6,7 @@ import { HeadInterface } from "./head";
 import { IdentityInterface } from "./identity";
 import { ManifestInterface } from "./manifest";
 import { LeafType, PollardInterface } from "./pollard";
-import { DenkmitHelia } from "./utils";
+import { DenkmitHeliaInterface } from "./utils";
 
 export const DENKMITDB_PREFIX = "/denkmitdb/";
 
@@ -33,7 +33,7 @@ export interface DenkmitDatabaseInterface extends DenkmitDatabaseType {
 	getManifest(): Promise<ManifestInterface>;
 
 	createHead(): Promise<HeadInterface>;
-	getHead(cid: CID): Promise<HeadInterface>;
+	fetchHead(cid: CID): Promise<HeadInterface>;
 
 	load(head: HeadInterface): Promise<void>;
 	compare(head: HeadInterface): Promise<{ isEqual: boolean; difference: [LeafType[], LeafType[]] }>;
@@ -43,7 +43,7 @@ export interface DenkmitDatabaseInterface extends DenkmitDatabaseType {
 
 export type DenkmitDatabaseOptions = {
 	storage?: Keyv;
-	ipfs: DenkmitHelia;
+	ipfs: DenkmitHeliaInterface;
 	identity: IdentityInterface;
 }
 

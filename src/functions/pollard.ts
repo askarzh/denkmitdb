@@ -348,6 +348,7 @@ class Pollard implements PollardInterface {
     }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function isEqualBytes(bytes1: Uint8Array, bytes2: Uint8Array): boolean {
     if (!bytes1 && !bytes2) {
         return true;

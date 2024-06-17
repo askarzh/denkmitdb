@@ -11,7 +11,7 @@ export type ManifestType = {
 	readonly consensusController: string;
 	readonly accessController: string;
 	readonly creatorId: string;
-	readonly meta?: Record<string, any>;
+	readonly meta?: Record<string, unknown>;
 	readonly id: string; // "/denkdb/cidaddress"
 };
 

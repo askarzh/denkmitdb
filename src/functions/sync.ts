@@ -2,7 +2,6 @@ import type { Message } from '@libp2p/interface';
 import delay from "delay";
 import PQueue from "p-queue";
 import { HeadInterface } from "src/types";
-import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { HeliaController } from "./utils";
 import { CID } from 'multiformats/cid';
 
@@ -34,14 +33,14 @@ export class SyncController {
         // this.newHead = newHead;
         // console.log("start",  this.newHead );
 
-        this.heliaController.ipfs.libp2p.services.pubsub.addEventListener("message", newHead);
-        this.heliaController.ipfs.libp2p.services.pubsub.addEventListener("subscription-change", async (data) => { console.log("subscription-change", { data }) });
-        this.heliaController.ipfs.libp2p.services.pubsub.subscribe(this.name);
+        this.heliaController.helia.libp2p.services.pubsub.addEventListener("message", newHead);
+        this.heliaController.helia.libp2p.services.pubsub.addEventListener("subscription-change", async (data) => { console.log("subscription-change", { data }) });
+        this.heliaController.helia.libp2p.services.pubsub.subscribe(this.name);
     }
 
     async sendHead(head: HeadInterface) {
         const cid = CID.parse(head.id);
-        this.heliaController.ipfs.libp2p.services.pubsub.publish(this.name, cid.bytes);
+        this.heliaController.helia.libp2p.services.pubsub.publish(this.name, cid.bytes);
     }
 
     async addTask(task: () => Promise<void>) {
@@ -58,8 +57,8 @@ export class SyncController {
     async close() {
         this.queue.clear();
         this.schdeduleQueue.clear();
-        this.heliaController.ipfs.libp2p.services.pubsub.unsubscribe(this.name);
-        this.heliaController.ipfs.libp2p.services.pubsub.removeEventListener("message");
+        this.heliaController.helia.libp2p.services.pubsub.unsubscribe(this.name);
+        this.heliaController.helia.libp2p.services.pubsub.removeEventListener("message");
 
     }
 

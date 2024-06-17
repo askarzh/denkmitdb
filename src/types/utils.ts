@@ -2,6 +2,7 @@ import { GossipsubEvents } from "@chainsafe/libp2p-gossipsub";
 import { Identify } from "@libp2p/identify";
 import { Libp2p, PubSub } from "@libp2p/interface";
 import { HeliaLibp2p } from "helia";
+import { IdentityInterface } from "./identity";
 
 export enum DataTypes {
 	Entry = 0,
@@ -15,9 +16,15 @@ export type DataType = {
 	dataType: DataTypes;
 };
 
-export type CIDstring = string;
+export type CidString = string;
 
-export type DenkmitHelia = HeliaLibp2p<Libp2p<{
+export type DenkmitHeliaInterface = HeliaLibp2p<Libp2p<{
     identify: Identify;
     pubsub: PubSub<GossipsubEvents>;
 }>>
+
+
+export type IdentifiableData<T> = {
+    data?: T;
+    identity?: IdentityInterface;
+};

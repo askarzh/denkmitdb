@@ -1,6 +1,5 @@
-import { he } from "@faker-js/faker";
 import { CID } from "multiformats/cid";
-import { HeadVersionType, HeadInput, HEAD_VERSION, HeadInterface, HeadType } from "src/types";
+import { HEAD_VERSION, HeadInput, HeadInterface, HeadType, HeadVersionType, IdentifiableData } from "src/types";
 import { HeliaController } from "./utils";
 
 export class Head implements HeadInterface {
@@ -36,7 +35,12 @@ export async function createHead(head: HeadInput, heliaController:HeliaControlle
         size: head.size,
     };
 
-    const cid = await heliaController.addSigned(head);
+    const dataToSign: IdentifiableData<HeadInput> = {
+        data: headInput,
+        identity: heliaController.identity,
+    }
+
+    const cid = await heliaController.addSigned(dataToSign);
 
     return new Head({
         ...headInput,
@@ -44,9 +48,9 @@ export async function createHead(head: HeadInput, heliaController:HeliaControlle
     });
 }
 
-export async function getHead(cid: CID, heliaController: HeliaController): Promise<HeadInterface> {
-    const result = await heliaController.getSigned(cid);
-    if(!result) throw new Error("Head not found");
-    const head: HeadType = {...result as HeadInput, id: cid.toString()};
+export async function fetchHeadData(cid: CID, heliaController: HeliaController): Promise<HeadInterface> {
+    const result = await heliaController.getSigned<HeadInput>(cid);
+    if(!result || !result.data) throw new Error("Head not found");
+    const head: HeadType = {...result.data, id: cid.toString()};
     return new Head(head);
 }

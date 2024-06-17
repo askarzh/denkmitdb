@@ -77,6 +77,9 @@ importers:
       interface-datastore:
         specifier: ^8.2.11
         version: 8.2.11
+      it-drain:
+        specifier: ^3.0.7
+        version: 3.0.7
       jose:
         specifier: ^5.4.0
         version: 5.4.0
@@ -95,6 +98,9 @@ importers:
       p-queue:
         specifier: ^8.0.1
         version: 8.0.1
+      timeout-abort-controller:
+        specifier: ^3.0.0
+        version: 3.0.0
       uint8arrays:
         specifier: ^5.1.0
         version: 5.1.0
@@ -3475,6 +3481,9 @@ packages:
     resolution: {integrity: sha512-l+sSefzHpj5qimhFSE5a8nufZYAM3sBSVMAPtYkmC+4EH2anSGaEMXSD0izRQbu9nfyQ9y5JrVmp7E8oZrUjvA==}
     engines: {node: '>=8'}
 
+  retimer@3.0.0:
+    resolution: {integrity: sha512-WKE0j11Pa0ZJI5YIk0nflGI7SQsfl2ljihVy7ogh7DeQSeYAUi0ubZ/yEueGtDfUPk6GH5LRw1hBdLq4IwUBWA==}
+
   reusify@1.0.4:
     resolution: {integrity: sha512-U9nH88a3fc/ekCF1l0/UP1IosiuIjyTh7hBvXVMHYgVcfGvt897Xguj2UOLDeI5BG2m7/uwyaLVT6fbtCwTyzw==}
     engines: {iojs: '>=1.0.0', node: '>=0.10.0'}
@@ -3736,6 +3745,9 @@ packages:
   time-span@5.1.0:
     resolution: {integrity: sha512-75voc/9G4rDIJleOo4jPvN4/YC4GRZrY8yy1uU4lwrB3XEQbWve8zXoO5No4eFrGcTAMYyoY67p8jRQdtA1HbA==}
     engines: {node: '>=12'}
+
+  timeout-abort-controller@3.0.0:
+    resolution: {integrity: sha512-O3e+2B8BKrQxU2YRyEjC/2yFdb33slI22WRdUaDx6rvysfi9anloNZyR2q0l6LnePo5qH7gSM7uZtvvwZbc2yA==}
 
   timestamp-nano@1.0.1:
     resolution: {integrity: sha512-4oGOVZWTu5sl89PtCDnhQBSt7/vL1zVEwAfxH1p49JhTosxzVQWYBYFRFZ8nJmo0G6f824iyP/44BFAwIoKvIA==}
@@ -8588,6 +8600,8 @@ snapshots:
       onetime: 5.1.2
       signal-exit: 3.0.7
 
+  retimer@3.0.0: {}
+
   reusify@1.0.4: {}
 
   rimraf@2.6.3:
@@ -8847,6 +8861,10 @@ snapshots:
   time-span@5.1.0:
     dependencies:
       convert-hrtime: 5.0.0
+
+  timeout-abort-controller@3.0.0:
+    dependencies:
+      retimer: 3.0.0
 
   timestamp-nano@1.0.1: {}
 

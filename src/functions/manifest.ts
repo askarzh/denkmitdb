@@ -2,6 +2,7 @@ import { Optional } from "utility-types";
 import { MANIFEST_VERSION, ManifestInput, ManifestInterface, ManifestType } from "../types/manifest";
 import { HeliaController } from "./utils";
 import { CID } from "multiformats/cid";
+import { IdentifiableData } from "src/types";
 
 export class Manifest implements ManifestInterface {
     readonly version = MANIFEST_VERSION;
@@ -11,7 +12,7 @@ export class Manifest implements ManifestInterface {
     readonly consensusController: string;
     readonly accessController: string;
     readonly creatorId: string;
-    readonly meta?: Record<string, any>;
+    readonly meta?: Record<string, unknown>;
     readonly id: string;
 
     constructor(manifest: Optional<ManifestType, "version">) {
@@ -45,20 +46,29 @@ export class Manifest implements ManifestInterface {
 }
 
 export async function createManifest(manifestInput: ManifestInput, heliaController: HeliaController): Promise<ManifestInterface> {
+    if (!heliaController.identity) {
+        throw new Error("Identity is required to create a manifest");
+    }
+
     const manifestEntry: ManifestInput = {
         ...manifestInput,
         creatorId: heliaController.identity.id,
     }
 
-    const cid = await heliaController.addSigned(manifestEntry);
+    const dataToSign: IdentifiableData<ManifestInput> = {
+        data: manifestEntry,
+        identity: heliaController.identity,
+    }
+
+    const cid = await heliaController.addSigned(dataToSign);
     const id = cid.toString();
 
     return new Manifest({ ...manifestEntry, id });
 }
 
 export async function openManifest(id: string, heliaController: HeliaController): Promise<ManifestInterface> {
-    const manifest = await heliaController.getSigned<ManifestInput>(CID.parse(id));
-    if (!manifest) throw new Error(`Manifest not found.`);
- 
-    return new Manifest({...manifest, id});
+    const result = await heliaController.getSigned<ManifestInput>(CID.parse(id));
+    if (!result || !result.data) throw new Error(`Manifest not found.`);
+
+    return new Manifest({ ...result.data, id });
 }

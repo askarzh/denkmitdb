@@ -22,11 +22,10 @@ import {
 } from "../types";
 import type { Message } from '@libp2p/interface';
 
-import { createHead, getHead } from "./head";
+import { createHead, fetchHeadData as fetchHeadData } from "./head";
 import { createManifest, openManifest } from "./manifest";
 import { HeliaController } from "./utils";
 import { createSyncController, SyncController } from "./sync";
-import { he } from "@faker-js/faker";
 
 // class TimestampConsensusController {} // TODO: Implement TimestampConsensusController
 
@@ -115,9 +114,9 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
         if (record.value) return record.value;
         const cid = CID.parse(record.cid);
         const entry = await this.heliaController.getSigned<EntryInput>(cid);
-        if (!entry) return;
-        await this.storage.set(key, { cid: cid.toString(), value: entry.value });
-        return entry.value;
+        if (!entry || !entry.data) return;
+        await this.storage.set(key, { cid: cid.toString(), value: entry.data.value });
+        return entry.data.value;
     }
 
     async* iterator(): AsyncGenerator<[key: string, value: object]> {
@@ -157,6 +156,10 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
 
         if (this.head && this.head.root === root) return undefined;
 
+        if (this.heliaController.identity === undefined) {
+            throw new Error("Identity id is undefined");
+        }
+
         const headInput: HeadInput = {
             version: HEAD_VERSION,
             manifest: this.manifest.id,
@@ -176,8 +179,8 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
         return await this.createOnlyNewHead() || this.head!;
     }
 
-    async getHead(cid: CID): Promise<HeadInterface> {
-        return await getHead(cid, this.heliaController);
+    async fetchHead(cid: CID): Promise<HeadInterface> {
+        return await fetchHeadData(cid, this.heliaController);
     }
 
     get size(): number {
@@ -440,7 +443,7 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
         const cid = CID.decode(message.detail.data);
         console.log({ cid })
         this.sync.addTask(async () => {
-            const head = await this.getHead(cid);
+            const head = await this.fetchHead(cid);
 
             if (this.size === 0) {
                 await this.load(head);

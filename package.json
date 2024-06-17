@@ -55,13 +55,16 @@
         "helia": "^4.2.3",
         "inquirer": "^9.2.23",
         "interface-datastore": "^8.2.11",
+        "it-drain": "^3.0.7",
         "jose": "^5.4.0",
         "js-sdsl": "^4.4.2",
         "keyv": "^4.5.4",
         "libp2p": "^1.6.1",
         "multiformats": "^13.1.1",
         "p-queue": "^8.0.1",
+        "timeout-abort-controller": "^3.0.0",
         "uint8arrays": "^5.1.0",
         "utility-types": "^3.11.0"
-    }
+    },
+    "packageManager": "pnpm@9.3.0+sha512.ee7b93e0c2bd11409c6424f92b866f31d3ea1bef5fbe47d3c7500cdc3c9668833d2e55681ad66df5b640c61fa9dc25d546efa54d76d7f8bf54b13614ac293631"
 }

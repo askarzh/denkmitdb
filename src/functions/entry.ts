@@ -1,15 +1,15 @@
-import * as json from "multiformats/codecs/json";
-
-import { ENTRY_VERSION, EntryInput, EntryInterface } from "../types";
+import { ENTRY_VERSION, EntryInput, EntryInterface, IdentifiableData } from "../types";
 import { HeliaController } from ".";
-import { base64 } from "multiformats/bases/base64";
-import { CID } from "multiformats/cid";
+
 
 export async function createEntry(
     key: string,
     value: object,
     heliaController: HeliaController,
 ): Promise<EntryInterface> {
+    if (!heliaController.identity) {
+        throw new Error("Identity is required to create an entry");
+    }
     const entryToSign: EntryInput = {
         version: ENTRY_VERSION,
         timestamp: Date.now(),
@@ -18,7 +18,12 @@ export async function createEntry(
         creatorId: heliaController.identity.id,
     };
 
-    const cid = await heliaController.addSigned(entryToSign);
+    const dataToSign: IdentifiableData<EntryInput> = {
+        data: entryToSign,
+        identity: heliaController.identity,
+    }
+
+    const cid = await heliaController.addSigned(dataToSign);
     const id = cid.toString();
     return { ...entryToSign, id };
 }

@@ -17,7 +17,7 @@ import { Key } from "interface-datastore/key";
 import { CID } from "multiformats/cid";
 import { createDenkmitDatabase, openDenkmitDatabase } from "./functions/denkmitdb";
 import { createIdentity } from "./functions/identity";
-import { DenkmitHelia } from "./types";
+import { DenkmitHeliaInterface } from "./types";
 import input from '@inquirer/input';
 import confirm from '@inquirer/confirm';
 
@@ -35,7 +35,7 @@ const libp2pOptions = {
     },
 };
 
-async function createIpfsNode(nodeNumber: number = 1): Promise<DenkmitHelia> {
+async function createIpfsNode(nodeNumber: number = 1): Promise<DenkmitHeliaInterface> {
     const directory = `node${nodeNumber}`;
     const blockstore = new FsBlockstore(`${directory}/block-store`);
     const datastore = new FsDatastore(`${directory}/data-store`);
@@ -77,7 +77,7 @@ async function createIpfsNode(nodeNumber: number = 1): Promise<DenkmitHelia> {
 }
 
 let ipfs = await createIpfsNode(2);
-let identity = await createIdentity({ ipfs, name: "user2" });
+let identity = await createIdentity({ helia: ipfs, name: "user2" });
 
 const address = await input({ message: 'Enter db address' });
 

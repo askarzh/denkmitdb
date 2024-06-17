@@ -1,5 +1,3 @@
-import { CID } from "multiformats/cid";
-
 import { HeliaController } from "src/functions";
 
 export const ENTRY_VERSION = 1;

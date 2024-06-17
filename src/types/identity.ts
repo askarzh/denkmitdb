@@ -1,6 +1,5 @@
 import * as jose from "jose";
-import type { Helia } from "@helia/interface";
-import { CIDstring } from "./utils";
+import { CidString, DenkmitHeliaInterface } from "./utils";
 
 export type KeyPair = Partial<jose.GenerateKeyPairResult>;
 
@@ -19,7 +18,7 @@ export type IdentityType = {
     readonly type: IdentityTypes;
     readonly alg:  IdentityAlgorithms;
     readonly publicKey: string;
-    id: CIDstring; // encoded CID to string
+    id: CidString;
 };
 
 export type IdentityInput = Omit<IdentityType, "id">;
@@ -33,4 +32,11 @@ export interface IdentityInterface extends IdentityType {
     decrypt(jwe: jose.FlattenedJWE): Promise<Uint8Array | boolean>;
 }
 
-export declare function createIdentity(helia: Helia, name?: string, passphrase?: string): Promise<IdentityInterface>;
+export type IdentityConfig = {
+    helia: DenkmitHeliaInterface;
+    alg?: IdentityAlgorithms;
+    name?: string;
+    passphrase?: string;
+};
+
+export declare function createIdentity(config: IdentityConfig): Promise<IdentityInterface>;
