@@ -40,6 +40,7 @@
         "@helia/unixfs": "^3.0.6",
         "@inquirer/confirm": "^3.1.9",
         "@inquirer/input": "^2.1.9",
+        "@inquirer/prompts": "^5.0.5",
         "@ipld/dag-cbor": "^9.2.0",
         "@libp2p/bootstrap": "^10.0.25",
         "@libp2p/identify": "^2.0.3",

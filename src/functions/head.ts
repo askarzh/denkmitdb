@@ -1,6 +1,5 @@
 import { CID } from "multiformats/cid";
-import { HEAD_VERSION, HeadInput, HeadInterface, HeadType, HeadVersionType, IdentifiableData } from "src/types";
-import { HeliaController } from "./utils";
+import { HEAD_VERSION, HeadInput, HeadInterface, HeadType, HeadVersionType, HeliaControllerInterface, OwnedDataType } from "src/types";
 
 export class Head implements HeadInterface {
     version: HeadVersionType;
@@ -24,8 +23,9 @@ export class Head implements HeadInterface {
     }
 }
 
-export async function createHead(head: HeadInput, heliaController:HeliaController): Promise<HeadInterface> {
-    const headInput: HeadInput = {
+export async function createHead(head: HeadInput, heliaController: HeliaControllerInterface): Promise<HeadInterface> {
+    const identity = heliaController.identity;
+    const data: HeadInput = {
         version: HEAD_VERSION,
         manifest: head.manifest,
         root: head.root,
@@ -35,22 +35,15 @@ export async function createHead(head: HeadInput, heliaController:HeliaControlle
         size: head.size,
     };
 
-    const dataToSign: IdentifiableData<HeadInput> = {
-        data: headInput,
-        identity: heliaController.identity,
-    }
-
+    const dataToSign: OwnedDataType<HeadInput> = { data, identity }
     const cid = await heliaController.addSigned(dataToSign);
 
-    return new Head({
-        ...headInput,
-        id: cid.toString(),
-    });
+    return new Head({ ...data, id: cid.toString() });
 }
 
-export async function fetchHeadData(cid: CID, heliaController: HeliaController): Promise<HeadInterface> {
+export async function fetchHead(cid: CID, heliaController: HeliaControllerInterface): Promise<HeadInterface> {
     const result = await heliaController.getSigned<HeadInput>(cid);
-    if(!result || !result.data) throw new Error("Head not found");
-    const head: HeadType = {...result.data, id: cid.toString()};
+    if (!result || !result.data) throw new Error("Head not found");
+    const head: HeadType = { ...result.data, id: cid.toString() };
     return new Head(head);
 }

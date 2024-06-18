@@ -1,16 +1,14 @@
-import { OrderedMap } from "js-sdsl";
 import Keyv from "keyv";
 import { CID } from "multiformats/cid";
-import { createEmptyPollard, createEntry, createLeaf, createPollard } from ".";
+import { createEmptyPollard, createEntry, createIdentity, createLeaf, createPollard, fetchEntry } from ".";
 import {
     DENKMITDB_PREFIX,
     DenkmitDatabaseInput,
     DenkmitDatabaseInterface,
     DenkmitDatabaseOptions,
-    EntryInput,
     HEAD_VERSION,
     HeadInput,
-    HeadInterface, LeafType,
+    HeadInterface, HeliaControllerInterface, IdentityInterface, LeafType,
     LeafTypes,
     MANIFEST_VERSION,
     ManifestInput,
@@ -18,19 +16,22 @@ import {
     PollardInterface,
     PollardLocation,
     PollardNode,
-    PollardType
+    PollardType,
+    SyncControllerInterface
 } from "../types";
 import type { Message } from '@libp2p/interface';
 
-import { createHead, fetchHeadData as fetchHeadData } from "./head";
-import { createManifest, openManifest } from "./manifest";
-import { HeliaController } from "./utils";
-import { createSyncController, SyncController } from "./sync";
+import { createHead, fetchHead } from "./head";
+import { createManifest, fetchManifest } from "./manifest";
+import { HeliaController } from "./utils/helia";
+import { createSyncController } from "./sync";
+import { SortedItemsStore } from "./utils/sortedItems";
 
 // class TimestampConsensusController {} // TODO: Implement TimestampConsensusController
 
-export async function createDenkmitDatabase(name: string, options: DenkmitDatabaseOptions): Promise<DenkmitDatabaseInterface> {
-    const heliaController = new HeliaController(options.ipfs, options.identity);
+export async function createDenkmitDatabase<T>(name: string, options: DenkmitDatabaseOptions<T>): Promise<DenkmitDatabaseInterface<T>> {
+    const identity = options.identity ?? await createIdentity({ helia: options.helia });
+    const heliaController = new HeliaController(options.helia, identity);
 
     const manifestInput: ManifestInput = {
         version: MANIFEST_VERSION,
@@ -39,99 +40,109 @@ export async function createDenkmitDatabase(name: string, options: DenkmitDataba
         pollardOrder: 3,
         consensusController: "timestamp",
         accessController: "writeAll",
-        creatorId: options.identity.id,
+        creatorId: identity.id,
     };
-
     const manifest = await createManifest(manifestInput, heliaController);
+    const syncController = options.syncController ?? await createSyncController(manifest.name, heliaController);
 
-    const sync = await createSyncController(manifest.name, heliaController);
-
-    const mdb: DenkmitDatabaseInput = {
+    const mdb: DenkmitDatabaseInput<T> = {
         manifest,
         heliaController,
-        storage: options.storage,
+        identity,
+        keyValueStorage: options.keyValueStorage,
+        syncController,
     };
-
-    const dmdb = new DenkmitDatabase(mdb, sync);
+    const dmdb = new DenkmitDatabase<T>(mdb);
     dmdb.setupSync();
 
     return dmdb;
 }
 
-export async function openDenkmitDatabase(id: string, options: DenkmitDatabaseOptions): Promise<DenkmitDatabaseInterface> {
+export async function openDenkmitDatabase<T>(id: string, options: DenkmitDatabaseOptions<T>): Promise<DenkmitDatabaseInterface<T>> {
     if (!id.startsWith(DENKMITDB_PREFIX)) throw new Error("Invalid id");
 
     const cid = id.substring(DENKMITDB_PREFIX.length);
+    const identity = options.identity ?? await createIdentity({ helia: options.helia });
+    const heliaController = new HeliaController(options.helia, identity);
+    const manifest = await fetchManifest(cid, heliaController);
+    const syncController = await createSyncController(manifest.name, heliaController);
 
-    const heliaController = new HeliaController(options.ipfs, options.identity);
+    const mdb: DenkmitDatabaseInput<T> = {
+        manifest,
+        heliaController,
+        identity,
+        keyValueStorage: options.keyValueStorage,
+        syncController,
+    };
 
-    const manifest = await openManifest(cid, heliaController);
-
-    const sync = await createSyncController(manifest.name, heliaController);
-
-    const dmdb = new DenkmitDatabase({ manifest, heliaController, storage: options.storage }, sync);
+    const dmdb = new DenkmitDatabase<T>(mdb);
     dmdb.setupSync();
 
     return dmdb;
 }
 
-export class DenkmitDatabase implements DenkmitDatabaseInterface {
+export class DenkmitDatabase<T> implements DenkmitDatabaseInterface<T> {
     readonly manifest: ManifestInterface;
-    readonly pollardOrder: number = 3;
     readonly maxPollardLength: number;
     readonly layers: PollardInterface[][];
-    readonly heliaController: HeliaController;
-    readonly storage: Keyv;
-    private orderedEntriesMap: OrderedMap<number, { cid: CID; key: string }>;
-    private readonly sync: SyncController;
+    readonly heliaController: HeliaControllerInterface;
+    readonly keyValueStorage: Keyv<T, Record<string, T>>;
+    private sortedItemsStore: SortedItemsStore;
+    private readonly syncController: SyncControllerInterface;
     private head?: HeadInterface;
 
-    constructor(mdb: DenkmitDatabaseInput, sync: SyncController) {
+    constructor(mdb: DenkmitDatabaseInput<T>) {
         this.manifest = mdb.manifest;
         this.layers = [];
-        this.orderedEntriesMap = new OrderedMap([], (x: number, y: number) => x - y, true);
-        this.storage = mdb.storage || new Keyv();
-        this.maxPollardLength = 2 ** this.pollardOrder;
+        this.keyValueStorage = mdb.keyValueStorage ?? new Keyv<T, Record<string, T>>;
+        this.sortedItemsStore = new SortedItemsStore();
+        this.maxPollardLength = 2 ** mdb.manifest.pollardOrder;
         this.heliaController = mdb.heliaController;
-        this.sync = sync
+        this.syncController = mdb.syncController;
+    }
+
+    get identity(): IdentityInterface {
+        return this.heliaController.identity;
+    }
+
+    get pollardOrder(): number {
+        return this.manifest.pollardOrder;
     }
 
     get id(): string {
         return `${DENKMITDB_PREFIX}${this.manifest.id}`;
     }
 
-    // TODO: async open(cid: CID): Promise<void> {}
-
-    async set(key: string, value: object): Promise<void> {
-        const entry = await createEntry(key, value, this.heliaController);
-        await this.updateLocalStorageAndMap(entry.timestamp, CID.parse(entry.id), key, value);
+    async set(key: string, value: T): Promise<void> {
+        const entry = await createEntry<T>(key, value, this.heliaController);
+        await this.sortedItemsStore.set(entry.timestamp, key, CID.parse(entry.id));
+        await this.keyValueStorage.set(key, value);
         await this.createTaskUpdateLayers(entry.timestamp);
     }
 
-    async get(key: string): Promise<object | undefined> {
-        const record = await this.storage.get(key);
-        if (!record) return;
-        if (record.value) return record.value;
-        const cid = CID.parse(record.cid);
-        const entry = await this.heliaController.getSigned<EntryInput>(cid);
-        if (!entry || !entry.data) return;
-        await this.storage.set(key, { cid: cid.toString(), value: entry.data.value });
-        return entry.data.value;
+    async get(key: string): Promise<T | undefined> {
+        const value = await this.keyValueStorage.get(key);
+        if (value) return value;
+        const item = await this.sortedItemsStore.getByKey(key);
+        if (!item) return;
+        const entry = await fetchEntry<T>(item.cid, this.heliaController);
+        if (!entry) return;
+        await this.keyValueStorage.set(key, entry.value);
+        return entry.value;
     }
 
-    async* iterator(): AsyncGenerator<[key: string, value: object]> {
-        for (const orderedEntriesMapElement of this.orderedEntriesMap) {
-            const { key } = orderedEntriesMapElement[1];
+    async* iterator(): AsyncGenerator<[key: string, value: T]> {
+        for await (const { key } of this.sortedItemsStore.iterator()) {
             const value = await this.get(key);
             if (value) yield [key, value];
         }
     }
 
     async close(): Promise<void> {
-        await this.sync.close();
-        await this.storage.clear();
+        await this.syncController.close();
+        await this.keyValueStorage.clear();
         this.layers.length = 0;
-        this.orderedEntriesMap.clear();
+        this.sortedItemsStore.clear();
         await this.heliaController.close();
     }
 
@@ -150,24 +161,20 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
     }
 
     async createOnlyNewHead(): Promise<HeadInterface | undefined> {
-        if (this.orderedEntriesMap.size() === 0) return undefined;
+        if (this.size === 0) return undefined;
         const cid = await this.getCID();
         const root = cid.toString();
 
         if (this.head && this.head.root === root) return undefined;
-
-        if (this.heliaController.identity === undefined) {
-            throw new Error("Identity id is undefined");
-        }
 
         const headInput: HeadInput = {
             version: HEAD_VERSION,
             manifest: this.manifest.id,
             root,
             timestamp: Date.now(),
-            creatorId: this.heliaController.identity.id,
+            creatorId: this.identity.id,
             layersCount: this.layers.length,
-            size: this.orderedEntriesMap.size(),
+            size: this.size,
         };
 
         this.head = await createHead(headInput, this.heliaController);
@@ -180,11 +187,11 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
     }
 
     async fetchHead(cid: CID): Promise<HeadInterface> {
-        return await fetchHeadData(cid, this.heliaController);
+        return await fetchHead(cid, this.heliaController);
     }
 
     get size(): number {
-        return this.orderedEntriesMap.size();
+        return this.sortedItemsStore.size;
     }
 
     async compare(head: HeadInterface): Promise<{ isEqual: boolean; difference: [LeafType[], LeafType[]] }> {
@@ -263,35 +270,36 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
         if (!leaf[3]) throw new Error("Missing key");
         const timestamp = leaf[2][0];
         const key = leaf[3];
-        await this.updateLocalStorageAndMap(timestamp, cid, key);
+        await this.sortedItemsStore.set(timestamp, key, cid);
         return timestamp;
     }
 
     async createTaskUpdateLayers(sortKey: number): Promise<void> {
-        this.sync.addTask(async () => {
+        this.syncController.addTask(async () => {
             await this.updateLayers(sortKey);
         });
     }
 
     async updateLayers(sortKey: number): Promise<void> {
-        const it = this.orderedEntriesMap.reverseUpperBound(sortKey);
-        if (it.index % this.maxPollardLength === 7) it.next();
-        const indexStart = it.index - (it.index % this.maxPollardLength);
-        const [startKey] = this.orderedEntriesMap.getElementByPos(indexStart);
-        const startPosition = this.calculatePositionInLayer(indexStart);
+        let index = 0;
+        if (sortKey > 0) {
+            const it = await this.sortedItemsStore.find(sortKey);
+            index = it.index;
+        }
+        const startIndex = Math.floor(index / this.maxPollardLength) * this.maxPollardLength;
+        const startItem = await this.sortedItemsStore.getByIndex(startIndex);
+        const startSortField = startItem.sortField;
+        const startPosition = this.calculatePositionInLayer(startIndex);
 
         let pollard = await createEmptyPollard(this.pollardOrder);
         let layerIndex = 0;
 
         let position = startPosition;
 
-        const begin = this.orderedEntriesMap.find(startKey);
-        const end = this.orderedEntriesMap.end();
-
-        for (const it = begin; !it.equals(end); it.next()) {
-            const { cid, key } = it.pointer[1];
+        for await (const item of this.sortedItemsStore.iteratorFrom(startSortField)) {
+            const { cid, key } = item;
             ({ pollard, position } = await this.handlePollardCreation(pollard, layerIndex, position));
-            pollard.append(LeafTypes.SortedEntry, cid, { sortFields: [it.pointer[0]], key: key || "" });
+            pollard.append(LeafTypes.SortedEntry, cid, { sortFields: [item.sortField], key });
         }
 
         await this.handlePollardUpdate(pollard, layerIndex, position);
@@ -351,7 +359,7 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
     getPollardTreeNodeLeft(node: PollardNode): PollardNode {
         if (node.position <= 0) throw new Error("No left node");
         if (
-            node.position >= Math.ceil(this.orderedEntriesMap.size() / 2 ** (this.pollardOrder * (node.layerIndex + 1)))
+            node.position >= Math.ceil(this.size / 2 ** (this.pollardOrder * (node.layerIndex + 1)))
         )
             throw new Error("No right node");
         node = node.pollard ? node : this.getPollardTreeNode(node);
@@ -425,11 +433,7 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
             }
             leaves = leavesNext;
         }
-    }
-
-    private async updateLocalStorageAndMap(timestamp: number, cid: CID, key: string, value?: unknown) {
-        this.orderedEntriesMap.setElement(timestamp, { cid, key });
-        await this.storage.set(key, { cid: cid.toString(), value });
+        await this.createTaskUpdateLayers(0);
     }
 
     private async getPollard(cid: CID): Promise<PollardInterface | undefined> {
@@ -442,7 +446,7 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
         console.log("syncNewHead", message);
         const cid = CID.decode(message.detail.data);
         console.log({ cid })
-        this.sync.addTask(async () => {
+        this.syncController.addTask(async () => {
             const head = await this.fetchHead(cid);
 
             if (this.size === 0) {
@@ -456,16 +460,16 @@ export class DenkmitDatabase implements DenkmitDatabaseInterface {
     async sendHead(): Promise<void> {
         const head = await this.createOnlyNewHead();
         if (head)
-            await this.sync.sendHead(head);
+            await this.syncController.sendHead(head);
     }
 
     async setupSync(): Promise<void> {
-        await this.sync.start(async (message: CustomEvent<Message>) => await this.syncNewHead(message));
-        await this.sync.addRepetitiveTask(async () => {
+        await this.syncController.start(async (message: CustomEvent<Message>) => await this.syncNewHead(message));
+        await this.syncController.addRepetitiveTask(async () => {
             const head = await this.createOnlyNewHead();
             console.log({ head })
             if (head)
-                await this.sync.sendHead(head);
+                await this.syncController.sendHead(head);
         }, 30000);
     }
 }

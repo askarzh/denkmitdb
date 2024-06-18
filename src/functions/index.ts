@@ -5,4 +5,5 @@ export * from "./pollard";
 export * from "./manifest";
 export * from "./head";
 export * from "./sync";
-export * from "./utils";
+export * from "./utils/helia";
+export * from "./utils/sortedItems";

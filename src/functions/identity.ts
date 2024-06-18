@@ -1,4 +1,3 @@
-import * as codec from "@ipld/dag-cbor";
 import { Key } from "interface-datastore";
 import * as jose from "jose";
 import { CID } from "multiformats/cid";
@@ -19,7 +18,7 @@ import {
 } from "../types";
 
 import { Optional } from "utility-types";
-import { HeliaController } from "./utils";
+import {  HeliaStorage } from "./utils/helia";
 
 const keyPrefix = "/Denkmit/";
 
@@ -55,7 +54,7 @@ class Identity implements IdentityInterface {
     private async getPublicKeyLike(): Promise<jose.KeyLike> {
         if (this.keys.publicKey) return this.keys.publicKey;
 
-        const publicJwk = codec.decode<jose.JWK>(uint8ArrayFromString(this.publicKey, "base64"));
+        const publicJwk = HeliaStorage.decode<jose.JWK>(uint8ArrayFromString(this.publicKey, "base64"));
         const pk = await jose.importJWK(publicJwk);
         if (pk instanceof Uint8Array) throw new Error("Public key is not available");
         this.keys.publicKey = pk;
@@ -111,7 +110,7 @@ async function exportPrivateKey(keys: KeyPair, passphrase: string): Promise<jose
     if (!keys.privateKey) throw new Error("Private key is not available");
 
     const jwk = await jose.exportJWK(keys.privateKey);
-    const encryptedPrivateKey = await new jose.FlattenedEncrypt(codec.encode(jwk))
+    const encryptedPrivateKey = await new jose.FlattenedEncrypt(HeliaStorage.encode(jwk))
         .setProtectedHeader({ alg: "PBES2-HS256+A128KW", enc: "A128GCM" })
         .encrypt(uint8ArrayFromString(passphrase));
 
@@ -124,7 +123,7 @@ async function importPrivateKey(encryptedPrivateKey: jose.FlattenedJWE, passphra
         contentEncryptionAlgorithms: ["A128GCM"],
     });
 
-    const privateJwk = codec.decode<jose.JWK>(result.plaintext);
+    const privateJwk = HeliaStorage.decode<jose.JWK>(result.plaintext);
     const privateKey = await jose.importJWK(privateJwk);
     if (privateKey instanceof Uint8Array) throw new Error("Cannot import private key");
 
@@ -133,7 +132,7 @@ async function importPrivateKey(encryptedPrivateKey: jose.FlattenedJWE, passphra
 
 async function encodePublicKey(publicKey: jose.KeyLike): Promise<string> {
     const publicJwk = await jose.exportJWK(publicKey);
-    return uint8ArrayToString(codec.encode(publicJwk), "base64");
+    return uint8ArrayToString(HeliaStorage.encode(publicJwk), "base64");
 }
 
 type createJWSOptions = {
@@ -159,14 +158,14 @@ async function createJWS(payload: Uint8Array, keys: KeyPair, options?: createJWS
     return await new jose.FlattenedSign(payload).setProtectedHeader(headers).sign(keys.privateKey);
 }
 
-export async function fetchIdentity(cid: CID | CidString, heliaController: HeliaController, keys?: KeyPair): Promise<IdentityInterface> {
+export async function fetchIdentity(cid: CID | CidString, heliaStorage: HeliaStorage, keys?: KeyPair): Promise<IdentityInterface> {
     cid = cid instanceof CID ? cid : CID.parse(cid);
 
-    const identityJWS = await heliaController.get<IdentityJWS>(cid);
+    const identityJWS = await heliaStorage.get<IdentityJWS>(cid);
     if (!identityJWS) throw new Error("Identity not found");
 
     const verifyResult = await jose.flattenedVerify(identityJWS, jose.EmbeddedJWK);
-    const identityInput: IdentityInput = codec.decode(verifyResult.payload);
+    const identityInput: IdentityInput = HeliaStorage.decode(verifyResult.payload);
     const id = cid.toString();
     const identity: IdentityType = { ...identityInput, id };
 
@@ -182,17 +181,16 @@ export async function createIdentity(config: IdentityConfig): Promise<IdentityIn
     const alg = config.alg || "ES384";
     const name = config.name || "default";
     const passphrase = config.passphrase || "password";
-    const helia = config.helia;
     const key = new Key(`${keyPrefix}/${name}`);
 
-    const heliaController = new HeliaController(helia);
+    const heliaStorage = new HeliaStorage(config.helia);
 
-    if (await heliaController.helia.datastore.has(key)) {
-        const data = await helia.datastore.get(key);
-        const { id, encryptedPrivateKey } = codec.decode(data) as IdentityDatastore;
+    if (await heliaStorage.datastore.has(key)) {
+        const data = await heliaStorage.datastore.get(key);
+        const { id, encryptedPrivateKey } = HeliaStorage.decode<IdentityDatastore>(data);
         const keys = await importPrivateKey(encryptedPrivateKey, passphrase);
 
-        return await fetchIdentity(CID.parse(id), heliaController, keys);
+        return await fetchIdentity(CID.parse(id), heliaStorage, keys);
     } else {
         const keys = await jose.generateKeyPair(alg);
         const encryptedPrivateKey = await exportPrivateKey(keys, passphrase);
@@ -205,8 +203,8 @@ export async function createIdentity(config: IdentityConfig): Promise<IdentityIn
             publicKey,
         };
 
-        const identityJWS = await createJWS(codec.encode(identityToSign), keys, { alg, includeJwk: true });
-        const cid = await heliaController.add(identityJWS);
+        const identityJWS = await createJWS(HeliaStorage.encode(identityToSign), keys, { alg, includeJwk: true });
+        const cid = await heliaStorage.add(identityJWS);
         const id = cid.toString();
         const identity: IdentityType = { ...identityToSign, id };
         const identityDatastore: IdentityDatastore = {
@@ -214,7 +212,7 @@ export async function createIdentity(config: IdentityConfig): Promise<IdentityIn
             encryptedPrivateKey,
         };
 
-        await helia.datastore.put(key, codec.encode(identityDatastore));
+        await heliaStorage.datastore.put(key, HeliaStorage.encode(identityDatastore));
 
         return new Identity(identity, keys);
     }

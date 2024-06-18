@@ -1,4 +1,4 @@
-import { HeliaController } from "src/functions";
+import { HeliaStorage } from "src/functions";
 
 export const MANIFEST_VERSION = 1;
 export type ManifestVersionType = typeof MANIFEST_VERSION;
@@ -21,5 +21,5 @@ export interface ManifestInterface extends ManifestType {
 	verify(): Promise<boolean>;
 }
 
-export declare function createManifest(manifestInput: ManifestInput, heliaController: HeliaController): Promise<ManifestInterface>;
-export declare function openManifest(id: string, heliaController: HeliaController): Promise<ManifestInterface>;
+export declare function createManifest(manifestInput: ManifestInput, heliaStorage: HeliaStorage): Promise<ManifestInterface>;
+export declare function openManifest(id: string, heliaStorage: HeliaStorage): Promise<ManifestInterface>;

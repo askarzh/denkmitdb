@@ -1,29 +1,28 @@
-import { ENTRY_VERSION, EntryInput, EntryInterface, IdentifiableData } from "../types";
-import { HeliaController } from ".";
+import { ENTRY_VERSION, EntryInput, EntryType, HeliaControllerInterface, OwnedDataType } from "../types";
+import { CID } from "multiformats/cid";
 
 
-export async function createEntry(
-    key: string,
-    value: object,
-    heliaController: HeliaController,
-): Promise<EntryInterface> {
-    if (!heliaController.identity) {
-        throw new Error("Identity is required to create an entry");
-    }
-    const entryToSign: EntryInput = {
+export async function createEntry<T>(key: string, value: T, heliaController: HeliaControllerInterface): Promise<EntryType<T>> {
+    const identity = heliaController.identity;
+    const data: EntryInput<T> = {
         version: ENTRY_VERSION,
         timestamp: Date.now(),
         key,
         value,
-        creatorId: heliaController.identity.id,
+        creatorId: identity.id,
     };
 
-    const dataToSign: IdentifiableData<EntryInput> = {
-        data: entryToSign,
-        identity: heliaController.identity,
-    }
+    const dataToSign: OwnedDataType<EntryInput<T>> = { data, identity }
 
     const cid = await heliaController.addSigned(dataToSign);
     const id = cid.toString();
-    return { ...entryToSign, id };
+    return { ...data, id };
+}
+
+export async function fetchEntry<T>(cid: CID, heliaController: HeliaControllerInterface): Promise<EntryType<T>> {
+    const entry = await heliaController.getSigned<EntryInput<T>>(cid);
+    if (!entry) throw new Error("Entry not found");
+    if (!entry.data) throw new Error("Entry data not found");
+
+    return { ...entry.data, id: cid.toString() };
 }

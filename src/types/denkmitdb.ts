@@ -1,34 +1,33 @@
-import type Keyv from "keyv";
+import Keyv from "keyv";
 import { CID } from "multiformats/cid";
-import { HeliaController } from "src/functions";
-import { Optional } from "utility-types";
-import { HeadInterface } from "./head";
-import { IdentityInterface } from "./identity";
-import { ManifestInterface } from "./manifest";
-import { LeafType, PollardInterface } from "./pollard";
-import { DenkmitHeliaInterface } from "./utils";
+import { LeafType, PollardInterface, HeliaControllerInterface, SyncControllerInterface, DenkmitHeliaInterface, SortedItemsStoreInterface, HeadInterface, IdentityInterface, ManifestInterface } from "../types";
 
 export const DENKMITDB_PREFIX = "/denkmitdb/";
 
-export type DenkmitDatabaseType = {
+export type DenkmitDatabaseType<T> = {
 	readonly manifest: ManifestInterface;
 	readonly pollardOrder: number;
 	readonly maxPollardLength: number;
 	readonly layers: PollardInterface[][];
-	readonly heliaController: HeliaController;
-	readonly storage: Keyv;
+	readonly heliaController: HeliaControllerInterface;
+	readonly identity: IdentityInterface;
+	readonly keyValueStorage: Keyv<T, Record<string, T>>;
 	readonly id: string;
 }
 
-export type DenkmitDatabaseInput = Optional<Omit<DenkmitDatabaseType, "pollardOrder" | "maxPollardLength" | "layers" | "id">, "storage">
+export type DenkmitDatabaseInput<T> = {
+	manifest: ManifestInterface;
+	heliaController: HeliaControllerInterface;
+	identity: IdentityInterface;
+	keyValueStorage?: Keyv<T, Record<string, T>>;
+	syncController: SyncControllerInterface;
+}
 
-export interface DenkmitDatabaseInterface extends DenkmitDatabaseType {
-	set(key: string, value: object): Promise<void>;
-	get(key: string): Promise<object | undefined>;
+export interface DenkmitDatabaseInterface<T> extends DenkmitDatabaseType<T> {
+	set(key: string, value: T): Promise<void>;
+	get(key: string): Promise<T | undefined>;
 	close(): Promise<void>;
-	// filter(filter: (kv: [key: string, value: object]) => boolean): Promise<[key: string, value: object][]>;
-	// getManifest(): Promise<ManifestType>;
-	iterator(): AsyncGenerator<[key: string, value: object]>;
+	iterator(): AsyncGenerator<[key: string, value: T]>;
 
 	getManifest(): Promise<ManifestInterface>;
 
@@ -40,12 +39,14 @@ export interface DenkmitDatabaseInterface extends DenkmitDatabaseType {
 	merge(head: HeadInterface): Promise<void>;
 }
 
-
-export type DenkmitDatabaseOptions = {
-	storage?: Keyv;
-	ipfs: DenkmitHeliaInterface;
-	identity: IdentityInterface;
+export type DenkmitDatabaseOptions<T> = {
+	helia: DenkmitHeliaInterface;
+	identity?: IdentityInterface;
+	keyValueStorage?: Keyv<T, Record<string, T>>;
+	pollardOrder?: number;
+	syncController?: SyncControllerInterface;
+	sortedItemsStore?: SortedItemsStoreInterface;
 }
 
-export declare function createDenkmitDatabase(name: string, options: DenkmitDatabaseOptions): Promise<DenkmitDatabaseInterface>;
-export declare function openDenkmitDatabase(id: string, options: DenkmitDatabaseOptions): Promise<DenkmitDatabaseInterface>;
+export declare function createDenkmitDatabase<T>(name: string, options: DenkmitDatabaseOptions<T>): Promise<DenkmitDatabaseInterface<T>>;
+export declare function openDenkmitDatabase<T>(id: string, options: DenkmitDatabaseOptions<T>): Promise<DenkmitDatabaseInterface<T>>;

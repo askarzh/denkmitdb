@@ -1,5 +1,5 @@
 import { CID } from 'multiformats/cid';
-import { HeliaController } from 'src/functions';
+import { HeliaStorage } from 'src/functions';
 
 export const HEAD_VERSION = 1;
 export type HeadVersionType = typeof HEAD_VERSION;
@@ -20,5 +20,5 @@ export type HeadInput = Omit<HeadType, "id">;
 export interface HeadInterface extends HeadType {
 }
 
-export declare function createHead(head: HeadInput, heliaController:HeliaController): Promise<HeadInterface>;
-export declare function getHead(cid: CID, heliaController: HeliaController): Promise<HeadInterface>;
+export declare function createHead(head: HeadInput, heliaStorage:HeliaStorage): Promise<HeadInterface>;
+export declare function getHead(cid: CID, heliaStorage: HeliaStorage): Promise<HeadInterface>;

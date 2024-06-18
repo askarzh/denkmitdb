@@ -1,8 +1,7 @@
+import { CID } from "multiformats/cid";
+import { HeliaControllerInterface, OwnedDataType } from "src/types";
 import { Optional } from "utility-types";
 import { MANIFEST_VERSION, ManifestInput, ManifestInterface, ManifestType } from "../types/manifest";
-import { HeliaController } from "./utils";
-import { CID } from "multiformats/cid";
-import { IdentifiableData } from "src/types";
 
 export class Manifest implements ManifestInterface {
     readonly version = MANIFEST_VERSION;
@@ -45,28 +44,22 @@ export class Manifest implements ManifestInterface {
     }
 }
 
-export async function createManifest(manifestInput: ManifestInput, heliaController: HeliaController): Promise<ManifestInterface> {
-    if (!heliaController.identity) {
-        throw new Error("Identity is required to create a manifest");
-    }
-
-    const manifestEntry: ManifestInput = {
+export async function createManifest(manifestInput: ManifestInput, heliaController: HeliaControllerInterface): Promise<ManifestInterface> {
+    const identity = heliaController.identity;
+    const data: ManifestInput = {
         ...manifestInput,
-        creatorId: heliaController.identity.id,
+        creatorId: identity.id,
     }
 
-    const dataToSign: IdentifiableData<ManifestInput> = {
-        data: manifestEntry,
-        identity: heliaController.identity,
-    }
+    const dataToSign: OwnedDataType<ManifestInput> = { data, identity }
 
     const cid = await heliaController.addSigned(dataToSign);
     const id = cid.toString();
 
-    return new Manifest({ ...manifestEntry, id });
+    return new Manifest({ ...data, id });
 }
 
-export async function openManifest(id: string, heliaController: HeliaController): Promise<ManifestInterface> {
+export async function fetchManifest(id: string, heliaController: HeliaControllerInterface): Promise<ManifestInterface> {
     const result = await heliaController.getSigned<ManifestInput>(CID.parse(id));
     if (!result || !result.data) throw new Error(`Manifest not found.`);
 
