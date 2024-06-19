@@ -62,6 +62,9 @@ importers:
       '@libp2p/tcp':
         specifier: ^9.0.27
         version: 9.0.27
+      '@types/json-logic-js':
+        specifier: ^2.0.7
+        version: 2.0.7
       blockstore-fs:
         specifier: ^1.1.10
         version: 1.1.10
@@ -89,6 +92,9 @@ importers:
       js-sdsl:
         specifier: ^4.4.2
         version: 4.4.2
+      json-logic-js:
+        specifier: ^2.0.2
+        version: 2.0.2
       keyv:
         specifier: ^4.5.4
         version: 4.5.4
@@ -1559,6 +1565,9 @@ packages:
   '@types/istanbul-reports@3.0.4':
     resolution: {integrity: sha512-pk2B1NWalF9toCRu6gjBzR69syFjP4Od8WRAX+0mmf9lAjCRicLOWc+ZrxZHx/0XRjotgkF9t6iaMJ+aXcOdZQ==}
 
+  '@types/json-logic-js@2.0.7':
+    resolution: {integrity: sha512-fucvZmbjqa1+gpw/nIwcP+ZIYHTvmwxuQQFKw/yU7+ZSD63z/xgY5pWN7sYUDRzg2Wf9STapL+7c66FNzhU6+Q==}
+
   '@types/json-schema@7.0.15':
     resolution: {integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==}
 
@@ -2817,6 +2826,9 @@ packages:
 
   json-buffer@3.0.1:
     resolution: {integrity: sha512-4bV5BfR2mqfQTJm+V5tPPdf+ZpuhiIvTuAB5g8kcrXOZpTT/QwwVRWBywX1ozr6lEuPdbHxwaJlm9G6mI2sfSQ==}
+
+  json-logic-js@2.0.2:
+    resolution: {integrity: sha512-ZBtBdMJieqQcH7IX/LaBsr5pX+Y5JIW+EhejtM3Ffg2jdN9Iwf+Ht6TbHnvAZ/YtwyuhPaCBlnvzrwVeWdvGDQ==}
 
   json-parse-better-errors@1.0.2:
     resolution: {integrity: sha512-mrqyZKfX5EhL7hvqcV6WG1yYjnjeuYDzDhhcAAUrq8Po85NBQBJP+ZDUT75qZQ98IkUoBqdkExkukOU7Ts2wrw==}
@@ -6393,6 +6405,8 @@ snapshots:
     dependencies:
       '@types/istanbul-lib-report': 3.0.3
 
+  '@types/json-logic-js@2.0.7': {}
+
   '@types/json-schema@7.0.15': {}
 
   '@types/multicast-dns@7.2.4':
@@ -7868,6 +7882,8 @@ snapshots:
   jsesc@2.5.2: {}
 
   json-buffer@3.0.1: {}
+
+  json-logic-js@2.0.2: {}
 
   json-parse-better-errors@1.0.2: {}
 

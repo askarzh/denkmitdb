@@ -1,18 +1,19 @@
 import { CID } from 'multiformats/cid';
 import { HeliaStorage } from 'src/functions';
+import { CidString } from './utils';
 
 export const HEAD_VERSION = 1;
 export type HeadVersionType = typeof HEAD_VERSION;
 
 export type HeadType = {
   readonly version: HeadVersionType;
-  readonly manifest: string; // encoded CID to string
-  readonly root: string; // encoded CID to string
+  readonly manifest: CidString;
+  readonly root: CidString;
   readonly timestamp: number;
   readonly layersCount: number;
   readonly size: number;
-  readonly creatorId: string; // encoded CID to string
-  readonly id: string; // encoded CID to string
+  readonly creatorId: CidString;
+  readonly id: CidString;
 };
 
 export type HeadInput = Omit<HeadType, "id">;
